@@ -28,7 +28,6 @@ public:
     }
 
     // rest of the code
-    // Overload the << operator for SymbolInfo
     string to_string()
     {
         string type_info, out = "", result = "";
@@ -119,7 +118,7 @@ public:
     {
         int i = hash(name) % this->size;
         int bucket_num = i + 1, pos = 1;
-        SymbolInfo *temp = buckets[i];
+        SymbolInfo *temp = buckets[i], *prev = NULL;
         while (temp != NULL)
         {
             if (temp->getName() == name)
@@ -127,12 +126,16 @@ public:
                 cout << "\t'" << name << "' already exists in the current ScopeTable" << endl;
                 return false;
             }
+            prev = temp;
             temp = temp->getNext();
+            pos++;
         }
 
         SymbolInfo *symbol = new SymbolInfo(name, type);
-        symbol->setNext(buckets[i]);
-        buckets[i] = symbol;
+        if (prev == NULL)
+            buckets[i] = symbol;
+        else
+            prev->setNext(symbol);
         cout << "\tInserted in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos << endl;
         return true;
     }
@@ -146,7 +149,7 @@ public:
         {
             if (temp->getName() == name)
             {
-                cout << "\t'" << name << "' found in ScopeTable# " << scope_num << " at position " << bucket_num << "," << pos + 1 << endl;
+                cout << "\t'" << name << "' found in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos + 1 << endl;
                 return temp;
             }
             temp = temp->getNext();
@@ -158,7 +161,7 @@ public:
     bool delete_symbol(string name)
     {
         int i = hash(name) % this->size;
-        int bucket_num = i + 1, pos = 0;
+        int bucket_num = i + 1, pos = 1;
         bool status = false;
         SymbolInfo *prev, *curr;
         prev = NULL, curr = buckets[i];
@@ -196,14 +199,14 @@ public:
             SymbolInfo *curr = buckets[i];
             while (curr != NULL)
             {
-                cout << curr->to_string();
+                cout << " " << curr->to_string();
                 curr = curr->getNext();
             }
-            cout << endl;
+            cout << " " << endl;
         }
     }
 
-    static unsigned int hash(string str)
+    unsigned int hash(string str)
     {
         unsigned int hash = 0;
         unsigned int i = 0;
@@ -211,7 +214,7 @@ public:
 
         for (i = 0; i < len; i++)
         {
-            hash = (str[i]) + (hash << 6) + (hash << 16) - hash;
+            hash = ((str[i]) + (hash << 6) + (hash << 16) - hash) % this->size;
         }
 
         return hash;
@@ -230,13 +233,15 @@ public:
 class SymbolTable
 {
     ScopeTable *current_scope;
-    int size;
+    int size, scope_count;
 
 public:
     SymbolTable(int n)
     {
         this->size = n;
+        this->scope_count = 1;
         current_scope = NULL;
+        this->enter_scope();
     }
 
     void enter_scope()
@@ -246,15 +251,15 @@ public:
         if (current_scope == NULL)
             new_scope->set_scope_num(1);
         else
-            new_scope->set_scope_num(current_scope->get_scope_num() + 1);
+            new_scope->set_scope_num(++scope_count);
         this->current_scope = new_scope;
         cout << "\tScopeTable# " << current_scope->get_scope_num() << " created" << endl;
         return;
     }
 
-    void exit_scope()
+    void exit_scope(bool override = false)
     {
-        if (current_scope == NULL)
+        if (!override && current_scope->get_parent_scope() == NULL)
         {
             cout << "\tNo scope to exit from" << endl;
             return;
@@ -297,8 +302,15 @@ public:
             curr = curr->get_parent_scope();
         }
 
-        cout << "\t'" << name << "' not found in any of the ScopeTable" << endl;
+        cout << "\t'" << name << "' not found in any of the ScopeTables" << endl;
         return NULL;
+    }
+
+    void delete_all_scope()
+    {
+        while (current_scope->get_parent_scope() != NULL)
+            this->exit_scope();
+        this->exit_scope(true);
     }
 
     void print_current_scope()
@@ -330,31 +342,33 @@ public:
 
 int main()
 {
-    freopen("in.txt", "r", stdin);
+    freopen("./sample_io/in.txt", "r", stdin);
     freopen("out.txt", "w", stdout);
     int n, cmd_count = 0;
     cin >> n;
     cin.ignore();
     SymbolTable *table = new SymbolTable(n);
-    table->enter_scope();
     while (true)
     {
         char option;
         int count = 0;
         string line, token;
         getline(cin, line);
-        istringstream stream(line);
+        istringstream stream(line), temp_stream(line);
         while (stream >> token)
             count++;
         stream.clear();
         stream.str(line);
         stream >> option;
-        cout << "Cmd " << ++cmd_count << ": " << line << endl;
+        cout << "Cmd " << ++cmd_count << ":";
+        while (temp_stream >> token)
+            cout << " " << token;
+        cout << endl;
         switch (option)
         {
         case 'I': // Insert a symbol
         {
-            if (count < 3)
+            if (count < 2)
             {
                 cout << "\tNumber of parameters mismatch for the command I" << endl;
                 continue;
@@ -404,7 +418,7 @@ int main()
             table->delete_symbol(name);
             break;
         }
-        case 'P': // Print scope table(s)
+        case 'P': // Print scope table
         {
             if (count != 2)
             {
@@ -448,8 +462,8 @@ int main()
                 cout << "\tNumber of parameters mismatch for the command Q" << endl;
                 continue;
             }
-            delete table; // Clean up memory
-            cout << "Exiting program." << endl;
+            table->delete_all_scope();
+            delete table;
             return 0;
         }
         default:
