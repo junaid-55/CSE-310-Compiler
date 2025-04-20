@@ -368,7 +368,7 @@ int main()
         {
         case 'I': // Insert a symbol
         {
-            if (count < 2)
+            if (count < 3)
             {
                 cout << "\tNumber of parameters mismatch for the command I" << endl;
                 continue;
