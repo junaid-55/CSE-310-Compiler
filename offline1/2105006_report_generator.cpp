@@ -175,11 +175,7 @@ int main(int argc, char *argv[])
     out << "Number of collision: " << fnv1a->collision_count << endl;
     out << "Mean ratio: " << (1.0 * fnv1a->collision_count / (fnv1a->bucket_size * fnv1a->scope_count)) << endl
         << endl;
-
-    delete sdmb;
-    delete djb2;
-    delete fnv1a;
-
+        
     delete sdmb_table;
     delete djb2_table;
     delete fnv1a_table;
