@@ -41,7 +41,7 @@ I num VAR
 I bicycle UNION INT n_gears BOOL is_hydrolic_brake STRING brand
 S
 I true BOOL
-I a
+L a
 P A
 E
 E

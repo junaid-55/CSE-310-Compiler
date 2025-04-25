@@ -1,7 +1,24 @@
 #include <iostream>
 #include <cstring>
 #include <sstream>
+#include "2105006_hash.hpp"
 using namespace std;
+typedef unsigned int (*HashFunction)(const string &, unsigned int);
+
+struct Hash_analysis
+{
+    int collision_count;
+    int total_inserted;
+    int bucket_size;
+    int scope_count;
+    Hash_analysis()
+    {
+        collision_count = 0;
+        total_inserted = 0;
+        bucket_size = 0;
+        scope_count = 0;
+    }
+};
 
 class SymbolInfo
 {
@@ -84,17 +101,20 @@ class ScopeTable
     SymbolInfo **buckets;
     ScopeTable *parent_scope;
     int size, scope_num;
+    Hash_analysis *hash_analysis;
+    HashFunction hash;
 
 public:
-    ScopeTable(int n)
+    ScopeTable(int n, HashFunction hash, Hash_analysis *hash_analysis)
     {
         this->size = n;
         buckets = new SymbolInfo *[size];
         for (int i = 0; i < size; i++)
             buckets[i] = NULL;
         this->parent_scope = NULL;
+        this->hash_analysis = hash_analysis;
+        this->hash = hash;
     }
-
     void set_scope_num(int scope_num)
     {
         this->scope_num = scope_num;
@@ -116,8 +136,11 @@ public:
 
     bool insert(string name, string type)
     {
-        int i = hash(name) % this->size;
+        int i = hash(name, this->size) % this->size;
         int bucket_num = i + 1, pos = 1;
+        if (buckets[i] != NULL)
+            hash_analysis->collision_count++;
+        hash_analysis->total_inserted++;
         SymbolInfo *temp = buckets[i], *prev = NULL;
         while (temp != NULL)
         {
@@ -142,7 +165,7 @@ public:
 
     SymbolInfo *lookup(string name)
     {
-        int i = hash(name) % this->size;
+        int i = hash(name, this->size) % this->size;
         int bucket_num = i + 1, pos = 0;
         SymbolInfo *temp = buckets[i];
         while (temp != NULL)
@@ -160,7 +183,7 @@ public:
 
     bool delete_symbol(string name)
     {
-        int i = hash(name) % this->size;
+        int i = hash(name, this->size) % this->size;
         int bucket_num = i + 1, pos = 1;
         bool status = false;
         SymbolInfo *prev, *curr;
@@ -206,20 +229,6 @@ public:
         }
     }
 
-    unsigned int hash(string str)
-    {
-        unsigned int hash = 0;
-        unsigned int i = 0;
-        unsigned int len = str.length();
-
-        for (i = 0; i < len; i++)
-        {
-            hash = ((str[i]) + (hash << 6) + (hash << 16) - hash) % this->size;
-        }
-
-        return hash;
-    }
-
     ~ScopeTable()
     {
         for (int i = 0; i < size; i++)
@@ -234,19 +243,34 @@ class SymbolTable
 {
     ScopeTable *current_scope;
     int size, scope_count;
-
+    string hash_function;
+    HashFunction hash;
+    int colission_count = 0;
+    Hash_analysis *hash_analysis;
 public:
-    SymbolTable(int n)
+    SymbolTable(int n, string hash_function)
     {
+        this->hash_function = hash_function;
         this->size = n;
         this->scope_count = 1;
+        this->hash_analysis = new Hash_analysis();
+        this->hash_analysis->bucket_size = n;
         current_scope = NULL;
+        if (hash_function == "SDBM")
+            this->hash = sdbmHash;
+        else if (hash_function == "DJB2")
+            this->hash = djb2Hash;
+        else if (hash_function == "FNV1A")
+            this->hash = fnv1aHash;
+        else
+            this->hash = sdbmHash;
         this->enter_scope();
     }
 
     void enter_scope()
     {
-        ScopeTable *new_scope = new ScopeTable(size);
+        ScopeTable *new_scope = new ScopeTable(size, hash, hash_analysis);
+        hash_analysis->scope_count++;
         new_scope->set_Parent_scope(this->current_scope);
         if (current_scope == NULL)
             new_scope->set_scope_num(1);
@@ -328,6 +352,16 @@ public:
             curr = curr->get_parent_scope();
         }
     }
+
+    Hash_analysis* get_hash_analyser(){
+        return hash_analysis;
+    }
+
+    string get_hash_function()
+    {
+        return this->hash_function;
+    }
+    
     ~SymbolTable()
     {
         ScopeTable *curr = current_scope;
@@ -337,138 +371,6 @@ public:
             curr = curr->get_parent_scope();
             delete temp;
         }
+        delete hash_analysis;
     }
 };
-
-int main()
-{
-    freopen("./sample_io/in.txt", "r", stdin);
-    freopen("out.txt", "w", stdout);
-    int n, cmd_count = 0;
-    cin >> n;
-    cin.ignore();
-    SymbolTable *table = new SymbolTable(n);
-    while (true)
-    {
-        char option;
-        int count = 0;
-        string line, token;
-        getline(cin, line);
-        istringstream stream(line), temp_stream(line);
-        while (stream >> token)
-            count++;
-        stream.clear();
-        stream.str(line);
-        stream >> option;
-        cout << "Cmd " << ++cmd_count << ":";
-        while (temp_stream >> token)
-            cout << " " << token;
-        cout << endl;
-        switch (option)
-        {
-        case 'I': // Insert a symbol
-        {
-            if (count < 3)
-            {
-                cout << "\tNumber of parameters mismatch for the command I" << endl;
-                continue;
-            }
-            string name, type;
-            stream >> name >> type;
-            if (type == "STRUCT" || type == "UNION")
-            {
-                if (count % 2 == 0)
-                {
-                    cout << "\tNumber of parameters mismatch for the command I" << endl;
-                    continue;
-                }
-
-                while (stream >> token)
-                    type += " " + token;
-            }
-            else if (type == "FUNCTION")
-            {
-                while (stream >> token)
-                    type += " " + token;
-            }
-            table->insert(name, type);
-            break;
-        }
-        case 'L': // Lookup a symbol
-        {
-            if (count != 2)
-            {
-                cout << "\tNumber of parameters mismatch for the command L" << endl;
-                continue;
-            }
-            string name;
-            stream >> name;
-            SymbolInfo *symbol = table->lookup(name);
-            break;
-        }
-        case 'D': // Delete a symbol
-        {
-            if (count != 2)
-            {
-                cout << "\tNumber of parameters mismatch for the command D" << endl;
-                continue;
-            }
-            string name;
-            stream >> name;
-            table->delete_symbol(name);
-            break;
-        }
-        case 'P': // Print scope table
-        {
-            if (count != 2)
-            {
-                cout << "\tNumber of parameters mismatch for the command P" << endl;
-                continue;
-            }
-            string choice;
-            stream >> choice;
-            if (choice == "C") // Print current scope
-                table->print_current_scope();
-            else if (choice == "A") // Print all scopes
-                table->print_all_scope();
-            else
-                cout << "\tNumber of parameters mismatch for the command" << endl;
-            break;
-        }
-        case 'S': // Enter a new scope
-        {
-            if (count != 1)
-            {
-                cout << "\tNumber of parameters mismatch for the command S" << endl;
-                continue;
-            }
-            table->enter_scope();
-            break;
-        }
-        case 'E': // Exit the current scope
-        {
-            if (count != 1)
-            {
-                cout << "\tNumber of parameters mismatch for the command E" << endl;
-                continue;
-            }
-            table->exit_scope();
-            break;
-        }
-        case 'Q': // Quit the program
-        {
-            if (count != 1)
-            {
-                cout << "\tNumber of parameters mismatch for the command Q" << endl;
-                continue;
-            }
-            table->delete_all_scope();
-            delete table;
-            return 0;
-        }
-        default:
-            cout << "\tNumber of parameters mismatch for the command" << endl;
-            break;
-        }
-    }
-}
