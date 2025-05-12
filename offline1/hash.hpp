@@ -7,9 +7,6 @@
  * A well-known string hashing algorithm created by Daniel J. Bernstein.
  * It has good distribution and speed on many types of inputs.
  * 
- * @param str The string to hash
- * @param tableSize The size of the hash table
- * @return The hash value (index in the hash table)
  */
 unsigned int djb2Hash(const std::string& str, unsigned int tableSize) {
     unsigned long hash = 5381; // Initial value
@@ -27,9 +24,6 @@ unsigned int djb2Hash(const std::string& str, unsigned int tableSize) {
  * Fowler-Noll-Vo is another popular string hashing function
  * known for its good dispersion and low collision rate.
  * 
- * @param str The string to hash
- * @param tableSize The size of the hash table
- * @return The hash value (index in the hash table)
  */
 unsigned int fnv1aHash(const std::string& str, unsigned int tableSize) {
     const uint32_t FNV_PRIME = 16777619;
@@ -54,9 +48,6 @@ unsigned int fnv1aHash(const std::string& str, unsigned int tableSize) {
  * Reference: Originally used in SDBM (a public-domain reimplementation of ndbm)
  * Acknowledgment: The algorithm has been widely used in various hash table implementations.
  * 
- * @param str The string to hash
- * @param tableSize The size of the hash table
- * @return The hash value (index in the hash table)
  */
 unsigned int sdbmHash(const std::string& str, unsigned int tableSize) {
     unsigned long hash = 0;

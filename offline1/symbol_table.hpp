@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <sstream>
-#include "2105006_hash.hpp"
+#include "hash.hpp"
 using namespace std;
 typedef unsigned int (*HashFunction)(const string &, unsigned int);
 

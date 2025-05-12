@@ -1,4 +1,4 @@
-#include "2105006_symbol_table.hpp"
+#include "symbol_table.hpp"
 
 
 int main(int argc, char *argv[])
@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
     freopen(argv[1], "r", stdin);
     freopen(argv[2], "w", stdout);
 
-    string hash_function = "SDMB";
+    string hash_function = "SDBM";
     if (argc == 4)
     {
         hash_function = argv[3];
