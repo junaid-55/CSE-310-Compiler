@@ -120,11 +120,11 @@ INVALID_IDENTIFIER {DIGIT}+{IDENTIFIER}
 
 <STRING_STATE>{LETTER} {
     str.push_back(yytext[0]);
-    std::cout << str << std::endl;
+    cout << str << endl;
 }
 
 <STRING_STATE>\" {
-    std::cout << str << std::endl;
+    cout << str << endl;
     BEGIN(INITIAL);
 }
 
@@ -135,7 +135,7 @@ INVALID_IDENTIFIER {DIGIT}+{IDENTIFIER}
 
 <CHAR_STATE>{ESCAPE_CHAR}"'" {
             char_str.assign(yytext, yyleng - 1);
-            std::cout << "DEBUG: ESCAPE_CHAR content: " << char_str << std::endl;
+            cout << "DEBUG: ESCAPE_CHAR content: " << char_str << endl;
             char c;
             switch (char_str[1]){
                 case 'a': c = '\a'; break;
@@ -157,7 +157,7 @@ INVALID_IDENTIFIER {DIGIT}+{IDENTIFIER}
 
 <CHAR_STATE>{ALPHANUMERIC}"'" {
             char_str.assign(yytext, yyleng - 1);
-            std::cout << "DEBUG: ALPHANUMERIC content: " << char_str << std::endl;
+            cout << "DEBUG: ALPHANUMERIC content: " << char_str << endl;
             tokenout << "<CONST_CHAR, " << char_str[0] << "> ";
             logout << "Line no " << line_count << ": TOKEN <CONST_CHAR> Lexeme '" << char_str << "' found\n";
             BEGIN INITIAL;
@@ -171,26 +171,27 @@ INVALID_IDENTIFIER {DIGIT}+{IDENTIFIER}
             
 }
 
-<CHAR_STATE>.{2,}"'" { 
+<CHAR_STATE>[^'\n]*"'" { 
         char_str.assign(yytext, yyleng - 1);
-        std::cout << "CHARACTER: " << char_str << std::endl; 
-        error_count++;
+		error_count++;
+        // cout << "CHARACTER: " << char_str << endl; 
         logout << "Error at line no " << line_count << ": Multi-character constant error '" << char_str << "'\n";
         BEGIN(INITIAL);
 }
 
 
-<CHAR_STATE>.*{NEWLINE} {
-        std::cout << "DEBUG: Error line " << line_count << ": Unterminated character content before newline: '" << char_str << "'\n";
+<CHAR_STATE>({ESCAPE_CHAR}|([^'\n]*)){NEWLINE} {
+        // cout << "DEBUG: Error line " << line_count << ": Unterminated character content before newline: '" << char_str << "'\n";
         error_count++;
-        char_str.assign(yytext, yyleng);
+		line_count++;
+        char_str.assign(yytext, yyleng-1);
         logout << "Error at line no " << line_count << ": Unterminated character '" << char_str << "\n";
-        line_count++;
         BEGIN(INITIAL);
 }
 
 <CHAR_STATE><<EOF>> {
         error_count++;
+		char_str.assign(yytext,yyleng);
         logout << "Error at line no " << line_count << ": Unterminated character  '" << char_str << "', EOF encountered.\n";
         BEGIN(INITIAL);
 }
@@ -266,13 +267,13 @@ INVALID_IDENTIFIER {DIGIT}+{IDENTIFIER}
 int main(int argc, char *argv[]) {
     
     if(argc != 2) {
-        cout << "Please provide input file name and try again" << std::endl;
+        cout << "Please provide input file name and try again" << endl;
         return 0;
     }
     
     ifstream fin(argv[1]);
     if(!fin.is_open()) {
-        std::cout << "Cannot open specified file" << std::endl;
+        cout << "Cannot open specified file" << endl;
         return 0;
     }
     
