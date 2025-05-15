@@ -53,8 +53,8 @@ unsigned int sdbmHash(const std::string& str, unsigned int tableSize) {
     unsigned long hash = 0;
     
     for (char c : str) {
-        hash = (static_cast<unsigned char>(c) + (hash << 6) + (hash << 16) - hash)%tableSize;
+        hash = (static_cast<unsigned char>(c) + (hash << 6) + (hash << 16) - hash);
     }
     
-    return hash % tableSize;
+    return hash;
 }

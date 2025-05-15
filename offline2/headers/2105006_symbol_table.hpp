@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <sstream>
+#include <fstream>
 #include "2105006_hash.hpp"
 using namespace std;
 typedef unsigned int (*HashFunction)(const string &, unsigned int);
@@ -78,10 +79,10 @@ public:
             out += ")";
         }
 
-        result += "<" + this->name + "," + type_info;
+        result += "< " + this->name + " : " + type_info;
         if (out != "")
             result += +"," + out;
-        result += ">";
+        result += " >";
         return result;
     }
 
@@ -134,19 +135,23 @@ public:
         return parent_scope;
     }
 
-    bool insert(string name, string type)
+    bool insert(string name, string type, ofstream &out)
     {
         int i = hash(name, this->size) % this->size;
-        int bucket_num = i + 1, pos = 1;
+        int bucket_num = i, pos = 0;
         if (buckets[i] != NULL)
             hash_analysis->collision_count++;
         hash_analysis->total_inserted++;
+        string scope_num_str = to_string(1);
+        if (this->parent_scope != NULL)
+            scope_num_str += "." + to_string(this->scope_num - 1);
         SymbolInfo *temp = buckets[i], *prev = NULL;
         while (temp != NULL)
         {
             if (temp->getName() == name)
             {
-                cout << "\t'" << name << "' already exists in the current ScopeTable" << endl;
+                out << temp->to_string() << " already exists in ScopeTable# " << scope_num_str << " at position " << bucket_num << ", " << pos << endl
+                    << endl;
                 return false;
             }
             prev = temp;
@@ -159,7 +164,40 @@ public:
             buckets[i] = symbol;
         else
             prev->setNext(symbol);
-        cout << "\tInserted in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos << endl;
+        // cout << "\tInserted in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos << endl;
+        return true;
+    }
+
+    bool insert(string name, string type)
+    {
+        int i = hash(name, this->size) % this->size;
+        int bucket_num = i, pos = 0;
+        if (buckets[i] != NULL)
+            hash_analysis->collision_count++;
+        hash_analysis->total_inserted++;
+        string scope_num_str = to_string(1);
+        if (this->parent_scope != NULL)
+            scope_num_str += "." + to_string(this->scope_num - 1);
+        SymbolInfo *temp = buckets[i], *prev = NULL;
+        while (temp != NULL)
+        {
+            if (temp->getName() == name)
+            {
+                cout << temp->to_string() << " already exists in ScopeTable# " << scope_num_str << " at position " << bucket_num << ", " << pos << endl
+                    << endl;
+                return false;
+            }
+            prev = temp;
+            temp = temp->getNext();
+            pos++;
+        }
+
+        SymbolInfo *symbol = new SymbolInfo(name, type);
+        if (prev == NULL)
+            buckets[i] = symbol;
+        else
+            prev->setNext(symbol);
+        // cout << "\tInserted in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos << endl;
         return true;
     }
 
@@ -172,7 +210,7 @@ public:
         {
             if (temp->getName() == name)
             {
-                cout << "\t'" << name << "' found in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos + 1 << endl;
+                // cout << "\t'" << name << "' found in ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos + 1 << endl;
                 return temp;
             }
             temp = temp->getNext();
@@ -206,8 +244,32 @@ public:
         else
             prev->setNext(curr->getNext());
         delete curr;
-        cout << "\tDeleted '" << name << "' from ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos << endl;
+        // cout << "\tDeleted '" << name << "' from ScopeTable# " << scope_num << " at position " << bucket_num << ", " << pos << endl;
         return true;
+    }
+
+    void print(ofstream &out, int indent = 0)
+    {
+        string prefix = "";
+        for (int i = 0; i < indent; i++)
+            prefix += '\t';
+        string scope_num_str = to_string(1);
+        if (this->parent_scope != NULL)
+            scope_num_str += "." + to_string(this->scope_num - 1);
+        out << "ScopeTable # " << scope_num_str << endl;
+        for (int i = 0; i < size; i++)
+        {
+            SymbolInfo *curr = buckets[i];
+            if (curr == NULL)
+                continue;
+            out << (i) << " --> ";
+            while (curr != NULL)
+            {
+                out << curr->to_string();
+                curr = curr->getNext();
+            }
+            out << endl;
+        }
     }
 
     void print(int indent = 0)
@@ -215,11 +277,16 @@ public:
         string prefix = "";
         for (int i = 0; i < indent; i++)
             prefix += '\t';
-        cout << prefix << "ScopeTable# " << this->scope_num << endl;
+        string scope_num_str = to_string(1);
+        if (this->parent_scope != NULL)
+            scope_num_str += "." + to_string(this->scope_num - 1);
+        cout << "ScopeTable# " << scope_num_str << endl;
         for (int i = 0; i < size; i++)
         {
-            cout << prefix << (i + 1) << "-->";
             SymbolInfo *curr = buckets[i];
+            if (curr == NULL)
+                continue;
+            cout << " " << (i + 1) << " -->";
             while (curr != NULL)
             {
                 cout << " " << curr->to_string();
@@ -247,6 +314,7 @@ class SymbolTable
     HashFunction hash;
     int colission_count = 0;
     Hash_analysis *hash_analysis;
+
 public:
     SymbolTable(int n, string hash_function)
     {
@@ -277,7 +345,7 @@ public:
         else
             new_scope->set_scope_num(++scope_count);
         this->current_scope = new_scope;
-        cout << "\tScopeTable# " << current_scope->get_scope_num() << " created" << endl;
+        // cout << "\tScopeTable# " << current_scope->get_scope_num() << " created" << endl;
         return;
     }
 
@@ -285,21 +353,31 @@ public:
     {
         if (!override && current_scope->get_parent_scope() == NULL)
         {
-            cout << "\tNo scope to exit from" << endl;
+            // cout << "\tNo scope to exit from" << endl;
             return;
         }
         ScopeTable *parent_scope = this->current_scope->get_parent_scope();
         int deleted_scope_num = this->current_scope->get_scope_num();
         delete this->current_scope;
         this->current_scope = parent_scope;
-        cout << "\tScopeTable# " << deleted_scope_num << " removed" << endl;
+        // cout << "\tScopeTable# " << deleted_scope_num << " removed" << endl;
+    }
+
+    bool insert(string name, string type, ofstream &out)
+    {
+        if (this->current_scope == NULL)
+        {
+            // cout << "\tNo scope to insert Symbol" << endl;
+            return false;
+        }
+        return this->current_scope->insert(name, type, out);
     }
 
     bool insert(string name, string type)
     {
         if (this->current_scope == NULL)
         {
-            cout << "\tNo scope to insert Symbol" << endl;
+            // cout << "\tNo scope to insert Symbol" << endl;
             return false;
         }
         return this->current_scope->insert(name, type);
@@ -309,7 +387,7 @@ public:
     {
         if (this->current_scope == NULL || !this->current_scope->delete_symbol(name))
         {
-            cout << "\tNot found in the current ScopeTable" << endl;
+            // cout << "\tNot found in the current ScopeTable" << endl;
             return false;
         }
         return true;
@@ -326,7 +404,7 @@ public:
             curr = curr->get_parent_scope();
         }
 
-        cout << "\t'" << name << "' not found in any of the ScopeTables" << endl;
+        // cout << "\t'" << name << "' not found in any of the ScopeTables" << endl;
         return NULL;
     }
 
@@ -342,6 +420,17 @@ public:
         this->current_scope->print(1);
     }
 
+    void print_all_scope(ofstream &out)
+    {
+        ScopeTable *curr = this->current_scope;
+        int indent = 1;
+        while (curr != NULL)
+        {
+            curr->print(out, indent++);
+            curr = curr->get_parent_scope();
+        }
+    }
+
     void print_all_scope()
     {
         ScopeTable *curr = this->current_scope;
@@ -353,7 +442,8 @@ public:
         }
     }
 
-    Hash_analysis* get_hash_analyser(){
+    Hash_analysis *get_hash_analyser()
+    {
         return hash_analysis;
     }
 
@@ -361,7 +451,7 @@ public:
     {
         return this->hash_function;
     }
-    
+
     ~SymbolTable()
     {
         ScopeTable *curr = current_scope;
