@@ -440,7 +440,7 @@ int main(int argc, char *argv[]) {
     }
     
     logout.open("log.txt");
-    tokenout.open("Token.txt");
+    tokenout.open("token.txt");
 
     FILE* yyin_file = fopen(argv[1], "r");
     yyin = yyin_file;
