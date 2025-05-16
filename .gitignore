@@ -1,3 +1,5 @@
-*./test.cpp
+test.cpp
 *.exe
-*./out.txt
+out.txt
+offline2/Samples
+offline2/Samples
