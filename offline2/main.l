@@ -7,12 +7,13 @@
 #include <fstream>
 #include <iostream>
 #include "headers/2105006_symbol_table.hpp"
-using namespace std;
+    using namespace std;
 	int line_count=1;
 	int error_count = 0;
     int temp_line_count = 0;
 
 	string char_str,str,temp_str;
+    
 	ofstream logout;
 	ofstream tokenout;
 
@@ -28,7 +29,7 @@ using namespace std;
 		return str;
 	}
 
-    string get_escaped_char(char c) {
+    string get_string_from_escape_char(char c) {
         switch(c){
             case 'a': return "\a";
             case 'b': return "\b";
@@ -43,6 +44,23 @@ using namespace std;
             case '0': return "\0";
         }
         return "";
+    }
+
+    char get_char_from_escape_char(char c) {
+        switch(c){
+            case 'a': return '\a';
+            case 'b': return '\b';
+            case 'f': return '\f';
+            case 'n': return '\n';
+            case 'r': return '\r';
+            case 't': return '\t';
+            case 'v': return '\v';
+            case '\\': return '\\';
+            case '\'': return '\'';
+            case '"': return '\"';
+            case '0': return '\0';
+        }
+        return c;
     }
 
 %}
@@ -61,22 +79,20 @@ DOTTED_NUMBER {DIGIT}*(\.{DIGIT}*)+
 MULTI_DOT_NUMBER {DIGIT}*(\.{DIGIT}*){2,}
 
 EXPONENT    [eE][+-]?{INT}
-DECIMAL_PART ({DIGIT}*\.?{INT})
-FLOAT ({DECIMAL_PART}{EXPONENT}?)
-INVALID_FLOAT {DECIMAL_PART}[eE][+-]?{DOTTED_NUMBER}
+FRACTION (({DIGIT}*\.{DIGIT}+)|{DIGIT}+\.{DIGIT}*)
+FLOAT (({FRACTION}{EXPONENT}?)|({DIGIT}+){EXPONENT})
+INVALID_FLOAT (({FRACTION}|{DOTTED_NUMBER}|{INT})[eE][+-]?{DOTTED_NUMBER})*|\.
 
 ESCAPE_CHAR  (\\([abfnrtv0'"\\])) 
-CHARACTER_LITERAL ({LETTER}|{ESCAPE_CHAR})
 NEWLINE \n
-ALPHANUMERIC ({LETTER}|{DIGIT})
-VALID_CHAR ({ESCAPE_CHAR}|{ALPHANUMERIC})
 
-KEYWORD (if|else|goto|long|short|static|unsigned|while|break|char|double|return|case|continue|for|do|int|float|void|switch|defaul)
+KEYWORD (if|else|goto|long|short|static|unsigned|while|break|char|double|return|case|continue|for|do|int|float|void|switch|default)
 
 IDENTIFIER (({LETTER}|_)+(({LETTER}|_)|{DIGIT})*)
-INVALID_IDENTIFIER (({INT}|{FLOAT}){IDENTIFIER})
+INVALID_IDENTIFIER (({INT}|{FLOAT})+{IDENTIFIER}{DOTTED_NUMBER}?)
 
-UNRECOGNIZED_LETTER [^a-zA-Z0-9_\\\'\"\.\n\r\t\f\v]
+
+UNRECOGNIZED_LETTER [^a-zA-Z0-9_]
 
 ADDOP [\+\-]
 MULOP [\*\/\%]
@@ -93,7 +109,6 @@ LTHIRD [\[]
 RTHIRD [\]]
 COMMA [,]
 SEMICOLON [;]
-
 
 
 
@@ -130,12 +145,12 @@ SEMICOLON [;]
 }
 
 {MULTI_DOT_NUMBER} {
-            logout << "Error at line no " << line_count << ": Too many decimal points " << yytext << "\n\n";
+            logout << "Error at line no " << line_count << ": Too many decimal points " << yytext << "\n\n\n";
             error_count++;
 }
 
 {INVALID_FLOAT} {
-            logout << "Error at line no " << line_count << ": Ill formed number " << yytext << "\n\n";
+            logout << "Error at line no " << line_count << ": Ill formed number " << yytext << "\n\n\n";
             error_count++;
 }
 
@@ -159,7 +174,7 @@ SEMICOLON [;]
     BEGIN SINGLE_LINE_COMMENT_STATE;
 }
 
-<SINGLE_LINE_COMMENT_STATE>[^\\\n]+ {
+<SINGLE_LINE_COMMENT_STATE>[^\\\n]* {
     str.append(yytext);
 }
 
@@ -178,6 +193,7 @@ SEMICOLON [;]
     str.clear();
     BEGIN INITIAL;
 }
+
 <SINGLE_LINE_COMMENT_STATE><<EOF>> {
     logout << "Line no " << line_count << ": Token <COMMENT> Lexeme //" << str << " found\n\n";
     BEGIN(INITIAL);
@@ -195,11 +211,11 @@ SEMICOLON [;]
     BEGIN INITIAL;
 }
 
-<MULTI_LINE_COMMENT_STATE>[^*\n]+ {
+<MULTI_LINE_COMMENT_STATE>[^*\n]* {
     str.append(yytext);
 }
 
-<MULTI_LINE_COMMENT_STATE>"*"+[^*/\n]+ {
+<MULTI_LINE_COMMENT_STATE>"*"+[^*/\n] {
     // this part is to handle comment parts like *****/
     // [^*/\n] -> if  ^* is not  included then "*"+ will consume all *
     // comment ending impossible
@@ -239,7 +255,7 @@ SEMICOLON [;]
 }
 
 <STRING_STATE>\\[^\n] {
-    string c = get_escaped_char(yytext[1]);
+    string c = get_string_from_escape_char(yytext[1]);
     str.append(c);
     temp_str.append(yytext);
 }
@@ -264,79 +280,77 @@ SEMICOLON [;]
     BEGIN(INITIAL);
 }
 
-' 	{
+
+\' 	{
             char_str.clear();
             BEGIN CHAR_STATE;
 }
 
-<CHAR_STATE>{ESCAPE_CHAR}"'" {
-            char_str.assign(yytext, yyleng - 1);
-            char c;
-            switch (char_str[1]){
-                case 'a': c = '\a'; break;
-                case 'b': c = '\b'; break;
-                case 'f': c = '\f'; break;
-                case 'n': c = '\n'; break;
-                case 'r': c = '\r'; break;
-                case 't': c = '\t'; break;
-                case 'v': c = '\v'; break;
-                case '\\': c = '\\'; break;
-                case '\'': c = '\''; break;
-                case '"': c = '\"'; break;
-                case '0': c = '\0'; break;
+<CHAR_STATE>{ESCAPE_CHAR}[\'\n] {
+            // for character in this form '\n' or '\n 
+            char_str.assign(yytext, yyleng);
+            if(yytext[yyleng-1] == '\n')
+            {
+                error_count++;
+                logout << "Error at line no " << line_count << ": Unterminated character '" << char_str << "\n\n";
+                line_count++;
             }
-            tokenout << "<CONST_CHAR, " << c << "> ";
-            logout << "Line no " << line_count << ": Token <CONST_CHAR> Lexeme '" << char_str << "' found --> <CONST_CHAR, "<<c<<">\n\n";
-            char_str = "'" + char_str+"'";
-            if(table->insert(char_str,"CONST_CHAR",logout))
-            table->print_all_scope(logout);
-            logout<<endl;
-            BEGIN INITIAL;
-}
-
-<CHAR_STATE>{ALPHANUMERIC}"'" {
-            char_str.assign(yytext, yyleng - 1);
-            tokenout << "<CONST_CHAR, " << char_str[0] << "> ";
-            logout << "Line no " << line_count << ": Token <CONST_CHAR> Lexeme '" << char_str << "' found --> <CONST_CHAR, "<<char_str[0]<<">\n\n";
-            char_str = "'" + char_str+"'";
-            if(table->insert(char_str,"CONST_CHAR",logout)){
-                table->print_all_scope(logout);
-                logout<<endl;
+            else 
+            {
+                char_str.pop_back();
+                char c = get_char_from_escape_char(char_str[1]);
+                tokenout << "<CONST_CHAR, " << c << "> ";
+                logout << "Line no " << line_count << ": Token <CONST_CHAR> Lexeme '" << char_str << "' found --> <CONST_CHAR, "<<c<<">\n\n";
+                char_str = "'" + char_str+"'";
+                if(table->insert(char_str,"CONST_CHAR",logout))
+                {
+                    table->print_all_scope(logout);
+                    logout<<endl;
+                }
             }
             BEGIN INITIAL;
 }
 
-<CHAR_STATE>"'" {
-        error_count++;
-        logout << "Error at line no " << line_count << ": Empty character constant error ''\n\n";
-        BEGIN INITIAL;
+<CHAR_STATE>[^\'\n]* {
+         // catches anything except single quote or newline   
+        char_str.assign(yytext,yyleng);
 }
 
-<CHAR_STATE>({ESCAPE_CHAR}|([^'\n]*)){NEWLINE} {
+<CHAR_STATE>\n {
         error_count++;
-        char_str.assign(yytext, yyleng);
+        char_str.append(yytext);
         logout << "Error at line no " << line_count << ": Unterminated character '" << char_str << "\n\n";
         line_count++;
         BEGIN(INITIAL);
 }
 
-<CHAR_STATE>[^'\n]"'" { 
-        char_str.assign(yytext, yyleng - 1);
-        logout << "Error at line no " << line_count << ": Unrecognized character constant error '" << char_str << "'\n\n";
-		error_count++;
-        BEGIN(INITIAL);
-}
-
-<CHAR_STATE>[^'\n]{2,}"'" { 
-        char_str.assign(yytext, yyleng - 1);
-		error_count++;
-        logout << "Error at line no " << line_count << ": Multi character constant error '" << char_str << "'\n\n";
+<CHAR_STATE>\' {
+        if(char_str.size() == 0)
+        {
+                error_count++;
+                logout << "Error at line no " << line_count << ": Empty character constant error ''\n\n\n";
+        }
+        else if (char_str.size() > 1)
+		{
+            error_count++;
+            logout << "Error at line no " << line_count << ": Multi character constant error '" << char_str << "'\n\n\n";
+        }
+        else
+        {
+            tokenout << "<CONST_CHAR, " << char_str << "> ";
+            logout << "Line no " << line_count << ": Token <CONST_CHAR> Lexeme '" << char_str << "' found --> <CONST_CHAR, "<<char_str<<">\n\n";
+            char_str = "'" + char_str+"'";
+            if(table->insert(char_str,"CONST_CHAR",logout)){
+                table->print_all_scope(logout);
+                logout<<endl;
+            }
+        }
         BEGIN(INITIAL);
 }
 
 <CHAR_STATE><<EOF>> {
-		char_str.assign(yytext,yyleng);
-        logout << "Error at line no " << line_count << ": Unterminated character  '" << char_str << "', EOF encountered.\n\n";
+        error_count++;
+        logout << "Error at line no " << line_count << ": Unterminated character  '" << char_str << "\n\n";
         BEGIN(INITIAL);
 }
 
@@ -426,13 +440,14 @@ int main(int argc, char *argv[]) {
     }
     
     logout.open("log.txt");
-    tokenout.open("Token.txt");
+    tokenout.open("token.txt");
 
     FILE* yyin_file = fopen(argv[1], "r");
     yyin = yyin_file;
     yylex();
     table->print_all_scope(logout);
     logout<<endl;
+    delete table;
     logout<<"Total lines: "<<line_count<<"\nTotal errors: "<<error_count<<endl;
     if(yyin_file) fclose(yyin_file);
     logout.close();
