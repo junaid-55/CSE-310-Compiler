@@ -7,7 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include "headers/2105006_symbol_table.hpp"
-using namespace std;
+    using namespace std;
 	int line_count=1;
 	int error_count = 0;
     int temp_line_count = 0;
@@ -81,7 +81,7 @@ MULTI_DOT_NUMBER {DIGIT}*(\.{DIGIT}*){2,}
 EXPONENT    [eE][+-]?{INT}
 FRACTION (({DIGIT}*\.{DIGIT}+)|{DIGIT}+\.{DIGIT}*)
 FLOAT (({FRACTION}{EXPONENT}?)|({DIGIT}+){EXPONENT})
-INVALID_FLOAT (({FRACTION}|{DOTTED_NUMBER}|{INT})[eE][+-]?{DOTTED_NUMBER})*
+INVALID_FLOAT (({FRACTION}|{DOTTED_NUMBER}|{INT})[eE][+-]?{DOTTED_NUMBER})*|\.
 
 ESCAPE_CHAR  (\\([abfnrtv0'"\\])) 
 NEWLINE \n
@@ -89,7 +89,7 @@ NEWLINE \n
 KEYWORD (if|else|goto|long|short|static|unsigned|while|break|char|double|return|case|continue|for|do|int|float|void|switch|default)
 
 IDENTIFIER (({LETTER}|_)+(({LETTER}|_)|{DIGIT})*)
-INVALID_IDENTIFIER (({INT}|{FLOAT})+{IDENTIFIER})
+INVALID_IDENTIFIER (({INT}|{FLOAT})+{IDENTIFIER}{DOTTED_NUMBER}?)
 
 
 UNRECOGNIZED_LETTER [^a-zA-Z0-9_]
@@ -110,8 +110,8 @@ RTHIRD [\]]
 COMMA [,]
 SEMICOLON [;]
 
-TYPE1 [^\-\(\)\n]*\-.*
-TYPE2 [^\-\n]*\-.*
+
+
 %%
 {WHITESPACE} {}
 {NEWLINE} {line_count++;}
@@ -153,12 +153,12 @@ TYPE2 [^\-\n]*\-.*
 }
 
 {MULTI_DOT_NUMBER} {
-            logout << "Error at line no " << line_count << ": Too many decimal points " << yytext << "\n\n";
+            logout << "Error at line no " << line_count << ": Too many decimal points " << yytext << "\n\n\n";
             error_count++;
 }
 
 {INVALID_FLOAT} {
-            logout << "Error at line no " << line_count << ": Ill formed number " << yytext << "\n\n";
+            logout << "Error at line no " << line_count << ": Ill formed number " << yytext << "\n\n\n";
             error_count++;
 }
 
@@ -336,12 +336,12 @@ TYPE2 [^\-\n]*\-.*
         if(char_str.size() == 0)
         {
                 error_count++;
-                logout << "Error at line no " << line_count << ": Empty character constant error ''\n\n";
+                logout << "Error at line no " << line_count << ": Empty character constant error ''\n\n\n";
         }
         else if (char_str.size() > 1)
 		{
             error_count++;
-            logout << "Error at line no " << line_count << ": Multi character constant error '" << char_str << "'\n\n";
+            logout << "Error at line no " << line_count << ": Multi character constant error '" << char_str << "'\n\n\n";
         }
         else
         {
@@ -448,13 +448,14 @@ int main(int argc, char *argv[]) {
     }
     
     logout.open("log.txt");
-    tokenout.open("Token.txt");
+    tokenout.open("token.txt");
 
     FILE* yyin_file = fopen(argv[1], "r");
     yyin = yyin_file;
     yylex();
     table->print_all_scope(logout);
     logout<<endl;
+    delete table;
     logout<<"Total lines: "<<line_count<<"\nTotal errors: "<<error_count<<endl;
     if(yyin_file) fclose(yyin_file);
     logout.close();

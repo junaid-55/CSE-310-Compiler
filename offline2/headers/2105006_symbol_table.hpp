@@ -101,7 +101,8 @@ class ScopeTable
 {
     SymbolInfo **buckets;
     ScopeTable *parent_scope;
-    int size;
+    int size, child_count = 0;
+    ;
     string scope_id;
     Hash_analysis *hash_analysis;
     HashFunction hash;
@@ -117,6 +118,17 @@ public:
         this->hash_analysis = hash_analysis;
         this->hash = hash;
     }
+
+    void increase_child_count()
+    {
+        this->child_count++;
+    }
+
+    int get_child_count()
+    {
+        return this->child_count;
+    }
+
     void set_scope_id(string scope_id)
     {
         this->scope_id = scope_id;
@@ -248,7 +260,7 @@ public:
         string prefix = "";
         for (int i = 0; i < indent; i++)
             prefix += '\t';
-        out<<"ScopeTable # "<<this->scope_id<<endl; 
+        out << "ScopeTable # " << this->scope_id << endl;
         for (int i = 0; i < size; i++)
         {
             SymbolInfo *curr = buckets[i];
@@ -330,61 +342,26 @@ public:
         ScopeTable *new_scope = new ScopeTable(size, hash, hash_analysis);
         hash_analysis->scope_count++;
         new_scope->set_Parent_scope(this->current_scope);
+        if (current_scope != NULL)
+            current_scope->increase_child_count();
 
         if (current_scope == NULL)
         {
-            // First scope
             new_scope->set_scope_id("1");
         }
         else
         {
             string parent_id = current_scope->get_scope_id();
-
-            // Check if we're nesting deeper or staying at same level
-            if (current_scope->get_parent_scope() == NULL)
+            if (exitingScope)
             {
-                // Parent is root scope (1) - either go to sibling (2) or child (1.1)
-                if (parent_id == "1")
-                {
-                    // First child of root - create 1.1
-                    new_scope->set_scope_id("1.1");
-                }
-                else
-                {
-                    // Sibling at root level - increment (2, 3, etc)
-                    int next_num = stoi(parent_id) + 1;
-                    new_scope->set_scope_id(to_string(next_num));
-                }
+                parent_id.pop_back();
+                string new_id = parent_id + to_string(current_scope->get_child_count());
+                new_scope->set_scope_id(new_id);
             }
-            else
-            {
-                // Parent already has a hierarchical ID (contains dots)
-                // Check if we need to go deeper or stay at same level
-                if (exitingScope)
-                {
-                    // Just exited a scope, so create a sibling
-                    size_t last_dot = parent_id.find_last_of('.');
-                    if (last_dot == string::npos)
-                    {
-                        // No dots in parent (should never happen here)
-                        new_scope->set_scope_id(parent_id + ".1");
-                    }
-                    else
-                    {
-                        string prefix = parent_id.substr(0, last_dot);
-                        int suffix = stoi(parent_id.substr(last_dot + 1)) + 1;
-                        new_scope->set_scope_id(prefix + "." + to_string(suffix));
-                    }
-                    exitingScope = false;
-                }
-                else
-                {
-                    // Going deeper - add a new level
-                    new_scope->set_scope_id(parent_id + ".1");
-                }
-            }
+            else 
+                new_scope->set_scope_id(parent_id+".1");
         }
-
+        exitingScope = false;
         this->current_scope = new_scope;
         // cout << "\tScopeTable# " << current_scope->get_scope_id() << " created" << endl;
         return;
@@ -400,6 +377,7 @@ public:
         string deleted_scope_id = this->current_scope->get_scope_id();
         delete this->current_scope;
         this->current_scope = parent_scope;
+        exitingScope = true;
         // cout << "\tScopeTable# " << deleted_scope_num << " removed" << endl;
     }
 
