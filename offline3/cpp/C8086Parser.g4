@@ -10,30 +10,31 @@ options {
     #include <string>
     #include <cstdlib>
     #include "C8086Lexer.h"
+	using namespace std;
 
-    extern std::ofstream parserLogFile;
-    extern std::ofstream errorFile;
+    extern ofstream parserLogFile;
+    extern ofstream errorFile;
 
     extern int syntaxErrorCount;
 }
 
 @parser::members {
-    void writeIntoparserLogFile(const std::string message) {
+    void writeIntoparserLogFile(const string message) {
         if (!parserLogFile) {
-            std::cout << "Error opening parserLogFile.txt" << std::endl;
+            cout << "Error opening parserLogFile.txt" << endl;
             return;
         }
 
-        parserLogFile << message << std::endl;
+        parserLogFile << message << endl;
         parserLogFile.flush();
     }
 
-    void writeIntoErrorFile(const std::string message) {
+    void writeIntoErrorFile(const string message) {
         if (!errorFile) {
-            std::cout << "Error opening errorFile.txt" << std::endl;
+            cout << "Error opening errorFile.txt" << endl;
             return;
         }
-        errorFile << message << std::endl;
+        errorFile << message << endl;
         errorFile.flush();
     }
 }
@@ -41,7 +42,7 @@ options {
 
 start : program
 	{
-        writeIntoparserLogFile("Parsing completed successfully with " + std::to_string(syntaxErrorCount) + " syntax errors.");
+        writeIntoparserLogFile("Parsing completed successfully with " + to_string(syntaxErrorCount) + " syntax errors.");
 	}
 	;
 
@@ -77,9 +78,9 @@ compound_statement : LCURL statements RCURL
 var_declaration 
     : t=type_specifier dl=declaration_list sm=SEMICOLON {
         writeIntoparserLogFile(
-            std::string("Variable Declaration: type_specifier declaration_list ") +
-            std::to_string($sm->getType()) +
-            " at line " + std::to_string($sm->getLine())
+            string("Variable Declaration: type_specifier declaration_list ") +
+            to_string($sm->getType()) +
+            " at line " + to_string($sm->getLine())
         );
 
         writeIntoparserLogFile("type_specifier name_line: " + $t.name_line);
@@ -87,7 +88,7 @@ var_declaration
 
     | t=type_specifier de=declaration_list_err sm=SEMICOLON {
         writeIntoErrorFile(
-            std::string("Line# ") + std::to_string($sm->getLine()) +
+            string("Line# ") + to_string($sm->getLine()) +
             " with error name: " + $de.error_name +
             " - Syntax error at declaration list of variable declaration"
         );
@@ -96,20 +97,20 @@ var_declaration
       }
     ;
 
-declaration_list_err returns [std::string error_name]: {
+declaration_list_err returns [string error_name]: {
         $error_name = "Error in declaration list";
     };
 
  		 
-type_specifier returns [std::string name_line]	
+type_specifier returns [string name_line]	
         : INT {
-            $name_line = "type: INT at line" + std::to_string($INT->getLine());
+            $name_line = "type: INT at line" + to_string($INT->getLine());
         }
  		| FLOAT {
-            $name_line = "type: FLOAT at line" + std::to_string($FLOAT->getLine());
+            $name_line = "type: FLOAT at line" + to_string($FLOAT->getLine());
         }
  		| VOID {
-            $name_line = "type: VOID at line" + std::to_string($VOID->getLine());
+            $name_line = "type: VOID at line" + to_string($VOID->getLine());
         }
  		;
  		
