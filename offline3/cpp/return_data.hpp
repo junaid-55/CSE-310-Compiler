@@ -1,12 +1,20 @@
-// filepath: /workspaces/CSE-310-Compiler/offline3/cpp/return_data.h
 #ifndef RETURN_DATA_H
 #define RETURN_DATA_H
 
-#include <string> // Required for std::string
-
+#include <string>
+using namespace std;
 struct ReturnData {
-    std::string text; // Use std::string for clarity
+    string text; 
     int line;
+    string type;
+    int argument_count;
+    ReturnData() : text(""), line(0), type("UNKNOWN"), argument_count(0) {}
+    void reset() {
+        text = "";
+        line = 0;
+        type = "UNKNOWN";
+        argument_count = 0;
+    }
 };
 
-#endif // RETURN_DATA_H
+#endif 

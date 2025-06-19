@@ -10,7 +10,8 @@ options {
     #include <string>
     #include <cstdlib>
     #include "C8086Lexer.h"
-    #include "return_data.hpp" // Assuming return_data.hpp contains the ReturnData struct
+    #include "return_data.hpp" 
+    #include "/workspaces/CSE-310-Compiler/offline3/cpp/headers/symbol_table.h"
     using namespace std;
 
     extern ofstream parserLogFile;
@@ -20,6 +21,10 @@ options {
 }
 
 @parser::members {
+    SymbolTable *st = new SymbolTable(30);
+    string current_type = "";
+    vector<ReturnData> args;
+    ReturnData buffer;
     void writeIntoparserLogFile(const string message) {
         if (!parserLogFile) {
             cout << "Error opening parserLogFile.txt" << endl;
@@ -35,14 +40,50 @@ options {
             cout << "Error opening errorFile.txt" << endl;
             return;
         }
-        errorFile << message << endl;
+        errorFile << message;
         errorFile.flush();
+    }
+
+    vector<pair<string, string>> parseParameterList(const string& paramList) {
+        vector<pair<string, string>> params;
+        stringstream ss(paramList);
+        string token;
+
+        while (getline(ss, token, ',')) {
+            size_t spacePos = token.find(' ');
+            if (spacePos != string::npos) {
+                string type = token.substr(0, spacePos);
+                string name = token.substr(spacePos + 1);
+                params.emplace_back(toUpperString(type), name);
+            }
+        }
+        return params;
+    }
+
+    vector<string> splitCommaSeparated(const string& input) {
+        vector<string> tokens;
+        stringstream ss(input);
+        string token;
+
+        while (getline(ss, token, ',')) {
+            tokens.push_back(token);
+        }
+
+        return tokens;
+    }
+
+    string toUpperString(string type){
+        for (auto &c : type)
+            c = toupper(c);
+        return type;
     }
 }
 
 
 start : program
     {
+        st->print_all_scope(parserLogFile);
+        parserLogFile << "\n";
         writeIntoparserLogFile("Parsing completed successfully with " + to_string(syntaxErrorCount) + " syntax errors.\n");
     }
     ;
@@ -79,7 +120,7 @@ unit returns [ReturnData data]
      | fd=func_declaration { 
         $data = $fd.data; 
         writeIntoparserLogFile(
-            "Line "+to_string($data.line) + ":" +
+            "\nLine "+to_string($data.line) + ":" +
             " unit : func_declaration\n\n" +
             $data.text + "\n\n"
         );
@@ -87,36 +128,111 @@ unit returns [ReturnData data]
      | fdef=func_definition { 
         $data = $fdef.data;
          writeIntoparserLogFile(
-            "Line "+to_string($data.line) + ":" +
+            "\nLine "+to_string($data.line) + ":" +
             " unit : func_definition\n\n" +
-            $data.text + "\n\n"
+            $data.text + "\n\n\n"
         );
      }
      ;
      
 func_declaration returns [ReturnData data]
-    : ts=type_specifier id=ID lp=LPAREN pl=parameter_list rp=RPAREN sm=SEMICOLON {
+    : ts=type_specifier id=ID lp=LPAREN {st->enter_scope();} pl=parameter_list rp=RPAREN sm=SEMICOLON {
+        st->exit_scope();
         $data.text = $ts.data.text + " " + $id->getText() + $lp->getText() + ($pl.ctx ? $pl.data.text : "") + $rp->getText() + $sm->getText();
         $data.line = $sm->getLine(); 
+        st->insert($data.text,"FUNCTION",true,false);
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" + 
             " func_declaration : type_specifier ID LPAREN parameter_list RPAREN SEMICOLON\n\n" +
             $data.text + "\n\n"
         );
     }
-    | ts=type_specifier id=ID lp=LPAREN rp=RPAREN sm=SEMICOLON {
+    | ts=type_specifier id=ID lp=LPAREN{st->enter_scope();} rp=RPAREN sm=SEMICOLON {
+        st->exit_scope();
         $data.text = $ts.data.text + " " + $id->getText() + $lp->getText() + $rp->getText() + $sm->getText();
         $data.line = $sm->getLine();
+        st->insert($data.text,"FUNCTION",true,false);
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" + 
             " func_declaration : type_specifier ID LPAREN RPAREN SEMICOLON\n\n" +
             $data.text + "\n\n"
         );
+
     }
     ;
          
 func_definition returns [ReturnData data]
-    : ts=type_specifier id=ID lp=LPAREN pl=parameter_list rp=RPAREN cs=compound_statement {
+    : ts=type_specifier id=ID lp=LPAREN{st->enter_scope();} pl=parameter_list 
+        rp=RPAREN {
+            auto sb = st->lookup($id->getText());
+            if(sb == nullptr) {
+                string func_data = $ts.data.text + " " + $id->getText() + $lp->getText() + ($pl.ctx ? $pl.data.text : "") + $rp->getText();
+                st->insertInParentScope(func_data, "FUNCTION", false, true);
+            }
+            else if(sb->isFunction() && !sb->isDefined()) {
+                    sb->setDefined(true);
+                    
+                    // if the return type matches the function declaration
+                    if(toUpperString(sb->getReturnType()) != toUpperString($ts.data.text)) {
+                        writeIntoErrorFile(
+                            "Error at line " + to_string($ts.data.line) + 
+                            ": Return type mismatch with function declaration in function " + $id->getText() + "\n\n"
+                        );
+                        writeIntoparserLogFile(
+                            "Error at line " + to_string($ts.data.line) + 
+                            ": Return type mismatch with function declaration in function " + $id->getText() + "\n\n"
+                        );
+                        syntaxErrorCount++;
+                    }     
+
+                    // if parameter count is same with declaration
+                    auto param_count = sb->getParameterCount();
+                    auto param_list = sb->getParameters();
+                    auto current_param_list = parseParameterList($pl.data.text);
+                    if(param_count != current_param_list.size()) {
+                        writeIntoErrorFile(
+                            "Error at line " + to_string($ts.data.line) + 
+                            ": Total number of arguments mismatch with declaration in function " + $id->getText() + "\n\n"
+                        );
+                        writeIntoparserLogFile(
+                            "Error at line " + to_string($ts.data.line) + 
+                            ": Total number of arguments mismatch with declaration in function " + $id->getText() + "\n\n"
+                        );
+                        syntaxErrorCount++;
+                    } else {
+
+                    // if parameter types are same with declaration
+                        for(size_t i = 0; i < param_list.size(); ++i) {
+                            if(param_list[i].first != toUpperString(current_param_list[i].first)) {
+                                writeIntoErrorFile(
+                                    "Error at line " + to_string($ts.data.line) + 
+                                    ": Type mismatch in parameter " + param_list[i].first + " in function " + $id->getText() + "\n\n"
+                                );
+                                writeIntoparserLogFile(
+                                    "Error at line " + to_string($ts.data.line) + 
+                                    ": Type mismatch in parameter " + param_list[i].first + " in function " + $id->getText() + "\n\n"
+                                );
+                                syntaxErrorCount++;
+                            }
+                        }
+                    }
+
+            }
+            else{
+                writeIntoErrorFile(
+                    "Error at line " + to_string($ts.data.line) + 
+                    ": Multiple declaration of " + $id->getText() + "\n\n"
+                );
+                writeIntoparserLogFile(
+                    "Error at line " + to_string($ts.data.line) + 
+                    ": Multiple declaration of " + $id->getText() + "\n\n"
+                );
+                syntaxErrorCount++;
+            }
+        }
+        cs=compound_statement[true]
+        {
+        
         $data.text = $ts.data.text + " " + $id->getText() + $lp->getText() + ($pl.ctx ? $pl.data.text : "") + $rp->getText() + $cs.data.text; 
         $data.line = $cs.data.line;
         writeIntoparserLogFile(
@@ -125,9 +241,61 @@ func_definition returns [ReturnData data]
             $data.text + "\n\n"
         );
     }
-    | ts=type_specifier id=ID lp=LPAREN rp=RPAREN cs=compound_statement {
+    | ts=type_specifier id=ID lp=LPAREN rp=RPAREN
+    {
+        auto sb = st->lookup($id->getText());
+        if(sb == nullptr) {
+            string func_data = $ts.data.text + " " + $id->getText() + $lp->getText() + $rp->getText();
+            st->insertInParentScope(func_data, "FUNCTION", false, true);
+        }
+        else if(sb->isFunction() && !sb->isDefined()) {
+                sb->setDefined(true);
+                
+                // if the return type matches the function declaration
+                if(toUpperString(sb->getReturnType()) != toUpperString($ts.data.text)) {
+                    writeIntoErrorFile(
+                        "Error at line " + to_string($ts.data.line) + 
+                        ": Return type mismatch with function declaration in function " + $id->getText() + "\n\n"
+                    );
+                    writeIntoparserLogFile(
+                        "Error at line " + to_string($ts.data.line) + 
+                        ": Return type mismatch with function declaration in function " + $id->getText() + "\n\n"
+                    );
+                    syntaxErrorCount++;
+                }     
+
+                // if parameter count is same with declaration
+                auto param_count = sb->getParameterCount();
+                if(param_count != 0) {
+                    writeIntoErrorFile(
+                        "Error at line " + to_string($ts.data.line) + 
+                        ": Total number of arguments mismatch with declaration in function " + $id->getText() + "\n\n"
+                    );
+                    writeIntoparserLogFile(
+                        "Error at line " + to_string($ts.data.line) + 
+                        ": Total number of arguments mismatch with declaration in function " + $id->getText() + "\n\n"
+                    );
+                    syntaxErrorCount++;
+                } 
+        }
+        else{
+            writeIntoErrorFile(
+                "Error at line " + to_string($ts.data.line) + 
+                ": Multiple declaration of " + $id->getText() + "\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($ts.data.line) + 
+                ": Multiple declaration of " + $id->getText() + "\n\n"
+            );
+            syntaxErrorCount++;
+        }
+        st->enter_scope();
+    }
+    cs=compound_statement[true] {
         $data.text = $ts.data.text + " " + $id->getText() + $lp->getText() + $rp->getText() + $cs.data.text;
         $data.line = $cs.data.line;
+
+        st->insert($data.text, "FUNCTION", false, true);
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " func_definition : type_specifier ID LPAREN RPAREN compound_statement\n\n" +
@@ -143,17 +311,37 @@ parameter_list returns [ReturnData data]
         $data.line = $id->getLine();
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
-            " parameter_list : parameter_list COMMA type_specifier ID\n\n" +
+            " parameter_list : parameter_list COMMA type_specifier ID\n\n"
+        );
+
+        auto sb = st->lookupCurrentScope($id->getText());
+        if(sb == nullptr) {
+            st->insert($id->getText(), toUpperString($ts.data.text));
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $id->getText() + " in parameter\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $id->getText() + " in parameter\n\n"
+            );
+
+            syntaxErrorCount++;
+        }
+
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
+
     }
     | prev_list=parameter_list cm=COMMA ts=type_specifier { 
         $data.text = $prev_list.data.text + $cm->getText() + $ts.data.text;
         $data.line = $ts.data.line;
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
-            " parameter_list : parameter_list COMMA type_specifier\n\n" +
-            $data.text + "\n\n"
+            " parameter_list : parameter_list COMMA type_specifier\n\n"
         );
     }
     | ts=type_specifier id=ID {
@@ -161,7 +349,27 @@ parameter_list returns [ReturnData data]
         $data.line = $id->getLine();
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
-            " parameter_list : type_specifier ID\n\n" +
+            " parameter_list : type_specifier ID\n\n"
+        );
+        
+        auto sb = st->lookupCurrentScope($id->getText());
+        if(sb == nullptr) {
+            st->insert($id->getText(), toUpperString($ts.data.text));
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $id->getText() + " in parameter\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $id->getText() + " in parameter\n\n"
+            );
+
+            syntaxErrorCount++;
+        }
+
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
@@ -175,8 +383,14 @@ parameter_list returns [ReturnData data]
     }
     ;
         
-compound_statement returns [ReturnData data]
-	: LCURL stmts=statements RCURL {
+compound_statement[bool isFunction]
+returns [ReturnData data]
+	: LCURL {
+        if(!isFunction){
+            st->enter_scope();
+        }
+    }
+     stmts=statements RCURL  {
 		$data.text = $LCURL->getText() + "\n" + $stmts.data.text + "\n" + $RCURL->getText();
 		$data.line = $RCURL->getLine();
 		writeIntoparserLogFile(
@@ -184,8 +398,12 @@ compound_statement returns [ReturnData data]
 			" compound_statement : LCURL statements RCURL\n\n" +
 			$data.text + "\n\n"
 		);
+
+        st->print_all_scope(parserLogFile);
+        parserLogFile << "\n\n";
+        st->exit_scope();
 	}
-	| LCURL RCURL {
+	| LCURL{if(!isFunction)st->enter_scope();} RCURL  {
 		$data.text = $LCURL->getText()+ "\n" + $RCURL->getText();
 		$data.line = $RCURL->getLine();
 		writeIntoparserLogFile(
@@ -193,22 +411,25 @@ compound_statement returns [ReturnData data]
 			" compound_statement : LCURL RCURL\n\n" +
 			$data.text + "\n\n"
 		);
+
+        st->print_all_scope(parserLogFile);
+        parserLogFile << "\n\n";
+        st->exit_scope();
 	}
 	;
 
             
 var_declaration returns [ReturnData data]
-    : t=type_specifier dl=declaration_list sm=SEMICOLON {
+    : t=type_specifier{current_type = toUpperString($t.data.text);} dl=declaration_list sm=SEMICOLON {
         $data.text = $t.data.text + " " + $dl.data.text + $sm->getText(); 
         $data.line = $sm->getLine(); 
-        
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " var_declaration : type_specifier declaration_list SEMICOLON\n\n" +
             $data.text + "\n\n"
         );
       }
-    | t=type_specifier de=declaration_list_err sm=SEMICOLON {
+    | t=type_specifier  de=declaration_list_err sm=SEMICOLON {
         $data.text = $t.data.text + " " + $de.data.text + $sm->getText(); 
         $data.line = $sm->getLine(); 
         writeIntoErrorFile(
@@ -226,10 +447,10 @@ declaration_list_err returns [ReturnData data]
         $data.line = 0; // Or a more specific line if available from context
     };
          
-type_specifier returns [ReturnData data]	
+type_specifier returns [ReturnData data,string type]	
     : kw=INT { 
         $data.text = $kw->getText();
-        $data.line = $kw->getLine();
+        $data.line = $kw->getLine();   
         writeIntoparserLogFile("Line "+to_string($data.line) + ":" + " type_specifier : INT\n\n" + $data.text + "\n\n" ); 
     }
     | kw=FLOAT { 
@@ -248,31 +469,149 @@ declaration_list returns [ReturnData data]
     : prev_list=declaration_list cm=COMMA current_id=ID {
         $data.text = $prev_list.data.text + $cm->getText() + $current_id->getText();
         $data.line = $current_id->getLine(); 
-        writeIntoparserLogFile("Line "+to_string($data.line) + ":" + " declaration_list : declaration_list COMMA ID\n\n" + $data.text + "\n\n");
+
+        writeIntoparserLogFile(
+            "Line "+to_string($data.line) + ":" +
+            " declaration_list : declaration_list COMMA ID\n\n"
+        );
+
+        auto sb = st->lookupCurrentScope($current_id->getText());
+        if(sb == nullptr) {
+            st->insert($current_id->getText(), current_type);
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $current_id->getText() + "\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $current_id->getText() + "\n\n"
+            );
+            syntaxErrorCount++;
+        }
+
+        writeIntoparserLogFile(
+            $data.text + "\n\n"
+        );
     }
     | prev_list_arr=declaration_list cm=COMMA current_id_arr=ID lt=LTHIRD const_val_arr=CONST_INT rt=RTHIRD {
         string currentArrText = $current_id_arr->getText() + $lt->getText() + $const_val_arr->getText() + $rt->getText();
         $data.text = $prev_list_arr.data.text + $cm->getText() + currentArrText;
         $data.line = $current_id_arr->getLine(); 
+
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
-            " declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD\n\n" +
+            " declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD\n\n"
+        );
+
+        auto sb = st->lookupCurrentScope($current_id_arr->getText());
+        if(sb == nullptr) {
+            st->insert($current_id_arr->getText(), current_type);
+            auto sb = st->lookupCurrentScope($current_id_arr->getText());
+            sb->setArray(true); 
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $current_id_arr->getText() + "\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " + $current_id_arr->getText() + "\n\n"
+            );
+            syntaxErrorCount++;
+        }
+
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
     | base_id=ID {
         $data.text = $base_id->getText();
         $data.line = $base_id->getLine();
-        writeIntoparserLogFile("Line "+to_string($data.line) + ":" + " declaration_list : ID\n\n" + $data.text + "\n\n");
+
+        writeIntoparserLogFile(
+            "Line "+to_string($data.line) + ":" +
+            " declaration_list : ID\n\n"
+        );
+
+        auto sb = st->lookupCurrentScope($data.text);
+        if(sb == nullptr) {
+            if(current_type == "VOID") {
+                writeIntoErrorFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Variable type cannot be void\n\n"
+                );
+
+                writeIntoparserLogFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Variable type cannot be void\n\n"
+                );
+
+                syntaxErrorCount++;
+            }
+            st->insert($data.text, current_type);
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " +$data.text + "\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " +$data.text + "\n\n"
+            );
+
+            syntaxErrorCount++;
+        }
+
+        writeIntoparserLogFile(
+            $data.text + "\n\n"
+        );
     }
     | base_id_arr=ID lt=LTHIRD const_val_base_arr=CONST_INT rt=RTHIRD {
         $data.text = $base_id_arr->getText() + $lt->getText() + $const_val_base_arr->getText() + $rt->getText();
         $data.line = $base_id_arr->getLine();
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
-            " declaration_list : ID LTHIRD CONST_INT RTHIRD\n\n" +
+            " declaration_list : ID LTHIRD CONST_INT RTHIRD\n\n"
+        );
+
+        auto sb = st->lookupCurrentScope($base_id_arr->getText());
+        if(sb == nullptr) {
+            st->insert($base_id_arr->getText(), current_type);
+            sb = st->lookupCurrentScope($base_id_arr->getText());
+            sb->setArray(true);
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " +$data.text + "\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Multiple declaration of " +$data.text + "\n\n"
+            );
+            syntaxErrorCount++;
+        }
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
+    }
+    | base_id_float_arr=ID lt_float=LTHIRD const_val_float_arr=CONST_FLOAT rt_float=RTHIRD {
+        $data.text = $base_id_float_arr->getText() + $lt_float->getText() + $const_val_float_arr->getText() + $rt_float->getText();
+        $data.line = $base_id_float_arr->getLine();
+        writeIntoErrorFile(
+            "Error at line " + to_string($data.line) +
+            " : Expression inside third brackets not an integer\n\n"
+        );
+        writeIntoparserLogFile(
+            "Line "+to_string($data.line) + ":" +
+            " declaration_list : ID LTHIRD CONST_FLOAT RTHIRD\n\n" +
+            $data.text + "\n\n"
+        );
+        syntaxErrorCount++;
     }
     ;
 
@@ -281,17 +620,17 @@ statements returns [ReturnData data]
         $data.text = $prev_stmts.data.text + "\n" + $stmt.data.text; 
         $data.line = $stmt.data.line; 
         writeIntoparserLogFile(
-            "Line "+to_string($data.line) + ":" +
+            "\nLine "+to_string($data.line) + ":" +
             " statements : statements statement\n\n" +
-            $data.text + "\n\n"
+            $data.text + "\n\n\n"
         );
     }
     | stmt=statement { 
         $data = $stmt.data;
         writeIntoparserLogFile(
-            "Line "+to_string($data.line) + ":" +
+            "\nLine "+to_string($data.line) + ":" +
             " statements : statement\n\n" +
-            $data.text + "\n\n"
+            $data.text + "\n\n\n"
         );
     }
     ;
@@ -313,30 +652,11 @@ statement returns [ReturnData data]
             $data.text + "\n\n"
         );
     }
-    | cs_lc=LCURL stmts=statements cs_rc=RCURL { // compound_statement with statements
-        $data.text = $cs_lc->getText() + " " + $stmts.data.text + " " + $cs_rc->getText();
-        $data.line = $cs_lc->getLine();
+    | cs=compound_statement[false] {
+        $data = $cs.data;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " statement : compound_statement (LCURL statements RCURL)\n\n" +
-            $data.text + "\n\n"
-        );
-    }
-    | cs_lc_empty=LCURL cs_rc_empty=RCURL { // empty compound_statement
-        $data.text = $cs_lc_empty->getText() + $cs_rc_empty->getText();
-        $data.line = $cs_lc_empty->getLine();
-        writeIntoparserLogFile(
-            "Line " + to_string($data.line) + ":" +
-            " statement : compound_statement (LCURL RCURL)\n\n" +
-            $data.text + "\n\n"
-        );
-    }
-    | kw_for=FOR lp_for=LPAREN es1_for=expression_statement es2_for=expression_statement expr_for=expression rp_for=RPAREN stmt_for=statement {
-        $data.text = $kw_for->getText() + $lp_for->getText() + $es1_for.data.text + " " + $es2_for.data.text + " " + $expr_for.data.text + $rp_for->getText() + " " + $stmt_for.data.text;
-        $data.line = $kw_for->getLine();
-        writeIntoparserLogFile(
-            "Line " + to_string($data.line) + ":" +
-            " statement : FOR LPAREN expression_statement expression_statement expression RPAREN statement\n\n" +
+            " statement : compound_statement\n\n" +
             $data.text + "\n\n"
         );
     }
@@ -372,7 +692,35 @@ statement returns [ReturnData data]
         $data.line = $kw_println->getLine();
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " statement : PRINTLN LPAREN ID RPAREN SEMICOLON\n\n" +
+            " statement : PRINTLN LPAREN ID RPAREN SEMICOLON\n\n"
+        );
+        auto sb = st->lookup($id_println->getText());
+        if(sb == nullptr) {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared variable " + $id_println->getText() + "\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) +
+                ": Undeclared variable " + $id_println->getText() + "\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else if(sb->isArray()) {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) +
+                ": Type mismatch, " + $id_println->getText() + " is an array\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) +
+                ": Type mismatch, " + $id_println->getText() + " is an array\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else {
+            $data.type = sb->getType();
+        }
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
@@ -414,16 +762,93 @@ variable returns [ReturnData data]
         $data.line = $id_tok->getLine();
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " variable : ID\n\n" +
+            " variable : ID\n\n"
+        );
+
+        auto sb = st->lookup($id_tok->getText());
+        if(sb == nullptr) {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared variable " + $id_tok->getText() + "\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared variable " + $id_tok->getText() + "\n\n"
+            );
+
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else if(sb->isArray()) {
+            cout<<sb->to_string() << endl;
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Type mismatch, " + $id_tok->getText() + " is an array\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Type mismatch, " + $id_tok->getText() + " is an array\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else {
+            $data.type = sb->getType();
+        }
+
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
+
     }
     | id_tok=ID lthird=LTHIRD expr=expression rthird=RTHIRD {
         $data.text = $id_tok->getText() + $lthird->getText() + $expr.data.text + $rthird->getText();
         $data.line = $id_tok->getLine();
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " variable : ID LTHIRD expression RTHIRD\n\n" +
+            " variable : ID LTHIRD expression RTHIRD\n\n"
+        );
+
+        auto sb = st->lookup($id_tok->getText());
+        if(sb == nullptr) {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared variable " + $id_tok->getText() + "\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared variable " + $id_tok->getText() + "\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else if(!sb->isArray()) {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": " + $id_tok->getText() + " not an array\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": " + $id_tok->getText() + " not an array\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else {
+            $data.type = sb->getType();
+        }
+
+        if($expr.data.type != "INT") {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) +
+                ": Expression inside third brackets not an integer\n\n"
+            );  
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) +
+                ": Expression inside third brackets not an integer\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        }
+
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
@@ -432,6 +857,7 @@ variable returns [ReturnData data]
 expression returns [ReturnData data]
     : le=logic_expression {
         $data = $le.data;
+        $data.type = $le.data.type; // Assuming logic_expression does not change type
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " expression : logic expression\n\n" +
@@ -439,11 +865,43 @@ expression returns [ReturnData data]
         );
     }
     | v=variable op=ASSIGNOP le=logic_expression {
-        $data.text = $v.data.text + " " + $op->getText() + " " + $le.data.text;
+        $data.text = $v.data.text  + $op->getText() + $le.data.text;
         $data.line = $v.data.line; 
+        $data.type = $le.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " expression : variable ASSIGNOP logic expression\n\n" +
+            " expression : variable ASSIGNOP logic_expression\n\n"
+        );
+
+        if($v.data.type != "UNKNOWN" && $le.data.type != "UNKNOWN"){ 
+            if( $le.data.type == "VOID"){
+                writeIntoErrorFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Void function used in expression\n\n"
+                );
+                writeIntoparserLogFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Void function used in expression\n\n"
+                );
+                syntaxErrorCount++;
+                $data.type = "UNKNOWN";
+            }else if($v.data.type == "INT" && $le.data.type != "INT") {
+                auto sb = st->lookup($v.data.text);
+                writeIntoErrorFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Type Mismatch\n\n"
+                );
+                writeIntoparserLogFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Type Mismatch\n\n"
+                );
+                syntaxErrorCount++;
+                $data.type = "UNKNOWN";
+            }
+        } else if($v.data.type == "UNKNOWN" || $le.data.type == "UNKNOWN") {
+            $data.type = "UNKNOWN";
+        }
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
@@ -452,6 +910,7 @@ expression returns [ReturnData data]
 logic_expression returns [ReturnData data]
     : re=rel_expression {
         $data = $re.data;
+        $data.type = $re.data.type; // Assuming rel_expression does not change type
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " logic_expression : rel_expression\n\n" +
@@ -459,8 +918,13 @@ logic_expression returns [ReturnData data]
         );
     }
     | re1=rel_expression op=LOGICOP re2=rel_expression {
-        $data.text = $re1.data.text + " " + $op->getText() + " " + $re2.data.text;
+        $data.text = $re1.data.text  + $op->getText()+ $re2.data.text;
         $data.line = $re1.data.line; 
+        if($re1.data.type == "INT" && $re2.data.type == "INT") {
+            $data.type = "INT";
+        } else {
+            $data.type = "UNKNOWN"; 
+        }
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " logic_expression : rel_expression LOGICOP rel_expression\n\n" +
@@ -472,6 +936,7 @@ logic_expression returns [ReturnData data]
 rel_expression returns [ReturnData data]
     : se=simple_expression {
         $data = $se.data;
+        $data.type = $se.data.type; // Assuming simple_expression does not change type
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " rel_expression : simple_expression\n\n" +
@@ -479,8 +944,9 @@ rel_expression returns [ReturnData data]
         );
     }
     | se1=simple_expression op=RELOP se2=simple_expression {
-        $data.text = $se1.data.text + " " + $op->getText() + " " + $se2.data.text;
+        $data.text = $se1.data.text  + $op->getText() + $se2.data.text;
         $data.line = $se1.data.line; 
+        //will do it later
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " rel_expression : simple_expression RELOP simple_expression\n\n" +
@@ -492,6 +958,7 @@ rel_expression returns [ReturnData data]
 simple_expression returns [ReturnData data]
     : t=term {
         $data = $t.data;
+        $data.type = $t.data.type; // Assuming term does not change type
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " simple_expression : term\n\n" +
@@ -501,6 +968,13 @@ simple_expression returns [ReturnData data]
     | se=simple_expression op=ADDOP t=term {
         $data.text = $se.data.text + $op->getText() + $t.data.text;
         $data.line = $se.data.line; 
+        if($se.data.type == "INT" && $t.data.type == "INT") {
+            $data.type = "INT";
+        } else if($se.data.type == "FLOAT" || $t.data.type == "FLOAT") {
+            $data.type = "FLOAT";
+        } else {
+            $data.type = "UNKNOWN";
+        }
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " simple_expression : simple_expression ADDOP term\n\n" +
@@ -512,6 +986,7 @@ simple_expression returns [ReturnData data]
 term returns [ReturnData data]
     : ue=unary_expression {
         $data = $ue.data;
+        $data.type = $ue.data.type; // Assuming unary_expression does not change type
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " term : unary_expression\n\n" +
@@ -521,9 +996,60 @@ term returns [ReturnData data]
     | t=term op=MULOP ue=unary_expression {
         $data.text = $t.data.text  + $op->getText() + $ue.data.text;
         $data.line = $t.data.line; 
+
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " term : term MULOP unary_expression\n\n" + 
+            " term : term MULOP unary_expression\n\n"
+        );
+
+        if($t.data.type == "INT" && $ue.data.type == "INT") {
+            $data.type = "INT";
+        } else if($t.data.type == "FLOAT" || $ue.data.type == "FLOAT") {
+            $data.type = "FLOAT";
+        } else {
+            $data.type = "UNKNOWN";
+        }
+
+        if($ue.data.type == "VOID") {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Void function used in expression\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Void function used in expression\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else {
+            if($op->getText() == "%") {
+                if($ue.data.type != "INT") {
+                    writeIntoErrorFile(
+                        "Error at line " + to_string($data.line) + 
+                        ": Non-Integer operand on modulus operator\n\n"
+                    );
+                    writeIntoparserLogFile(
+                        "Error at line " + to_string($data.line) + 
+                        ": Non-Integer operand on modulus operator\n\n"
+                    );
+                    syntaxErrorCount++;
+                    $data.type = "UNKNOWN";
+                } else if( stoi($ue.data.text) == 0) {
+                    writeIntoErrorFile(
+                        "Error at line " + to_string($data.line) + 
+                        ": Mudulus by zero\n\n"
+                    );
+                    writeIntoparserLogFile(
+                        "Error at line " + to_string($data.line) + 
+                        ": Mudulus by zero\n\n"
+                    );
+                    syntaxErrorCount++;
+                    $data.type = "UNKNOWN";
+                }
+            }
+        }
+
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
@@ -533,23 +1059,50 @@ unary_expression returns [ReturnData data]
     : op=ADDOP ue=unary_expression { 
         $data.text = $op->getText() + $ue.data.text; 
         $data.line = $op->getLine();
+        $data.type = $ue.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " unary_expression : ADDOP unary_expression\n\n" +
-            $data.text + "\n\n"
+            " unary_expression : ADDOP unary_expression\n\n"
         );
+        
+        if($ue.data.type == "VOID") {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Void function used in expression\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Void function used in expression\n\n"
+            );
+            $data.type = "UNKNOWN";
+            syntaxErrorCount++;
+        }
     }
     | op_not=NOT ue=unary_expression { 
         $data.text = $op_not->getText() + $ue.data.text; 
         $data.line = $op_not->getLine();
+        $data.type = $ue.data.type; 
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
-            " unary_expression : NOT unary_expression\n\n" +
-            $data.text + "\n\n"
+            " unary_expression : NOT unary_expression\n\n"
         );
+
+        if($ue.data.type != "INT") {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Non-Integer operand on NOT operator\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Non-Integer operand on NOT operator\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        }
     }
     | f=factor { 
         $data = $f.data; 
+        $data.type = $f.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " unary_expression : factor\n\n" +
@@ -557,29 +1110,99 @@ unary_expression returns [ReturnData data]
         );
     }
     ;
-    // Removed duplicate unary_expression rule that did not have returns
     
 factor returns [ReturnData data]
     : v=variable {
         $data = $v.data;
+        $data.type = $v.data.type;
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " factor : variable\n\n" +
             $data.text + "\n\n"
         );
     }
-    | id_tok=ID lp=LPAREN al=argument_list rp=RPAREN {
+    | id_tok=ID lp=LPAREN al=argument_list[$id_tok->getText()] rp=RPAREN {
         $data.text = $id_tok->getText() + $lp->getText() + ($al.ctx ? $al.data.text : "") + $rp->getText();
         $data.line = $id_tok->getLine();
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
-            " factor : ID LPAREN argument_list RPAREN\n\n" +
+            " factor : ID LPAREN argument_list RPAREN\n\n"
+        );
+
+        auto sb = st->lookup($id_tok->getText());
+        if(sb == nullptr) {
+            //hook for undefined function call 
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared function " + $id_tok->getText() + "\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Undeclared function " + $id_tok->getText() + "\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        } else if(sb->isFunction()) {
+            if(!sb->isDefined()) {
+                //hook for checking error
+            } else {
+                //hook for checking if the defined prototype matches the declaration
+                //no checking for simplicity
+                $data.type = sb->getReturnType();
+                auto params = sb->getParameters();
+                if(params.size() != args.size()) {
+                    writeIntoErrorFile(
+                        "Error at line " + to_string($data.line) + 
+                        ": Total number of arguments mismatch in function " + $id_tok->getText() + "\n\n"
+                    );
+                    writeIntoparserLogFile(
+                        "Error at line " + to_string($data.line) + 
+                        ": Total number of arguments mismatch in function " + $id_tok->getText() + "\n\n"
+                    );
+                    syntaxErrorCount++;
+                } else {
+                    for(size_t i = 0; i < params.size(); ++i) {
+                        cout << "Parameter type: " << params[i].first << ", Argument type: " << args[i].type <<"("<<args[i].text<<")"<< endl;
+                        if(params[i].first != args[i].type) {
+                            writeIntoErrorFile(
+                                "Error at line " + to_string($data.line) + 
+                                ": " + to_string(i+1) + "th argument mismatch in function " + $id_tok->getText() + "\n\n"
+                            );
+                            writeIntoparserLogFile(
+                                "Error at line " + to_string($data.line) + 
+                                ": " + to_string(i+1) + "th argument mismatch in function " + $id_tok->getText() + "\n\n"
+                            );
+                            syntaxErrorCount++;
+                            break;
+                            if(i == params.size() - 1) {
+                                $data.type = sb->getReturnType();
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": " + $id_tok->getText() + " is not a function\n\n"
+            );
+
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": " + $id_tok->getText() + " is not a function\n\n"
+            );
+            syntaxErrorCount++;
+            $data.type = "UNKNOWN";
+        }
+        args.clear();
+        writeIntoparserLogFile(
             $data.text + "\n\n"
         );
     }
     | lp=LPAREN expr_val=expression rp=RPAREN {
         $data.text = $lp->getText() + $expr_val.data.text + $rp->getText();
         $data.line = $lp->getLine();
+        $data.type = $expr_val.data.type;
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " factor : LPAREN expression RPAREN\n\n" +
@@ -589,6 +1212,7 @@ factor returns [ReturnData data]
     | tok=CONST_INT {
         $data.text = $tok->getText();
         $data.line = $tok->getLine();
+        $data.type = "INT";
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " factor : CONST_INT\n\n" +
@@ -598,6 +1222,9 @@ factor returns [ReturnData data]
     | tok=CONST_FLOAT {
         $data.text = $tok->getText();
         $data.line = $tok->getLine();
+        $data.type = "FLOAT";
+        if($data.text.back() != '0')
+            $data.text.push_back('0');
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " factor : CONST_FLOAT\n\n" +
@@ -607,6 +1234,7 @@ factor returns [ReturnData data]
     | v=variable op=INCOP {
         $data.text = $v.data.text + $op->getText();
         $data.line = $v.data.line;
+        $data.type = $v.data.type;
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " factor : variable INCOP\n\n" +
@@ -616,6 +1244,7 @@ factor returns [ReturnData data]
     | v=variable op=DECOP {
         $data.text = $v.data.text + $op->getText();
         $data.line = $v.data.line;
+        $data.type = $v.data.type;
         writeIntoparserLogFile(
             "Line "+to_string($data.line) + ":" +
             " factor : variable DECOP\n\n" +
@@ -624,7 +1253,8 @@ factor returns [ReturnData data]
     }
     ;
     
-argument_list returns [ReturnData data]
+argument_list[string func_name]
+ returns [ReturnData data]
     : args=arguments {
         $data = $args.data;
         writeIntoparserLogFile(
@@ -634,8 +1264,23 @@ argument_list returns [ReturnData data]
         );
     }
     | { 
-        $data.text = "";
-        $data.line = 0; 
+        // $data.text = "";
+        // $data.line = 0; 
+        // auto sb = st->lookup(func_name);
+        // if(sb == nullptr) {
+        //     writeIntoErrorFile(
+        //         "Error at line " + to_string($data.line) +
+        //         ": Function " + func_name + " not declared\n\n"
+        //     );
+        // } else if(sb->isFunction()) {
+        //     if(!sb->isDefined()) {
+        //         writeIntoErrorFile(
+        //             "Error at line " + to_string($data.line) +
+        //             ": Function " + func_name + " not defined\n\n"
+        //         );
+        //     } else {
+        //         auto params = sb->getParameters();
+                
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" + 
             " argument_list : <empty>\n\n" +
@@ -648,6 +1293,8 @@ arguments returns [ReturnData data]
     : prev_args=arguments cm=COMMA le=logic_expression { 
         $data.text = $prev_args.data.text + $cm->getText() + $le.data.text;
         $data.line = $le.data.line; 
+        args.push_back($le.data);
+        cout<<"Arguments: "<<$data.text << endl;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " arguments : arguments COMMA logic_expression\n\n" +
@@ -656,6 +1303,7 @@ arguments returns [ReturnData data]
     }
     | le=logic_expression { 
         $data = $le.data; 
+        args.push_back($le.data);
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " arguments : logic_expression\n\n" +
