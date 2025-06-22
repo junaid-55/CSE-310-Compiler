@@ -7,13 +7,16 @@ struct ReturnData {
     string text; 
     int line;
     string type;
-    int argument_count;
+    int argument_count;bool was_error = false;
     ReturnData() : text(""), line(0), type("UNKNOWN"), argument_count(0) {}
     void reset() {
         text = "";
         line = 0;
         type = "UNKNOWN";
         argument_count = 0;
+    }
+    void setError(){
+        was_error = true;
     }
 };
 
