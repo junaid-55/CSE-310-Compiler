@@ -58,7 +58,6 @@ options {
                 params.emplace_back(toUpperString(type), name);
             }
             else {
-                // If no space found, treat the whole token as a type with no name
                 params.emplace_back(toUpperString(token), "");
             }
         }
@@ -219,8 +218,6 @@ func_definition returns [ReturnData data]
             }
             else if(sb->isFunction() && !sb->isDefined()) {
                     sb->setDefined(true);
-                    
-                    // if the return type matches the function declaration
                     if(toUpperString(sb->getReturnType()) != toUpperString($ts.data.text)) {
                         writeIntoErrorFile(
                             "Error at line " + to_string($ts.data.line) + 
@@ -1360,7 +1357,6 @@ factor returns [ReturnData data]
 
         auto sb = st->lookup($id_tok->getText());
         if(sb == nullptr) {
-            //hook for undefined function call 
             writeIntoErrorFile(
                 "Error at line " + to_string($data.line) + 
                 ": Undeclared function " + $id_tok->getText() + "\n\n"
@@ -1373,7 +1369,6 @@ factor returns [ReturnData data]
             $data.type = "UNKNOWN";
         } else if(sb->isFunction()) {
             if(!sb->isDefined()) {
-                //hook for checking error
                 writeIntoErrorFile(
                     "Error at line " + to_string($data.line) + 
                     ": Undefined function " + $id_tok->getText()+"\n\n"
@@ -1385,8 +1380,6 @@ factor returns [ReturnData data]
                 syntaxErrorCount++;
                 $data.type = "UNKNOWN";
             } else {
-                //hook for checking if the defined prototype matches the declaration
-                //no checking for simplicity
                 $data.type = sb->getReturnType();
                 auto params = sb->getParameters();
                 if(params.size() != args.size()) {
@@ -1518,23 +1511,6 @@ argument_list[string func_name]
         );
     }
     | { 
-        // $data.text = "";
-        // $data.line = 0; 
-        // auto sb = st->lookup(func_name);
-        // if(sb == nullptr) {
-        //     writeIntoErrorFile(
-        //         "Error at line " + to_string($data.line) +
-        //         ": Function " + func_name + " not declared\n\n"
-        //     );
-        // } else if(sb->isFunction()) {
-        //     if(!sb->isDefined()) {
-        //         writeIntoErrorFile(
-        //             "Error at line " + to_string($data.line) +
-        //             ": Function " + func_name + " not defined\n\n"
-        //         );
-        //     } else {
-        //         auto params = sb->getParameters();
-                
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" + 
             " argument_list : <empty>\n\n" +
