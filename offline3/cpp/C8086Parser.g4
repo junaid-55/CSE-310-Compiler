@@ -10,8 +10,8 @@ options {
     #include <string>
     #include <cstdlib>
     #include "C8086Lexer.h"
-    #include "return_data.hpp" 
-    #include "/workspaces/CSE-310-Compiler/offline3/cpp/headers/symbol_table.h"
+    #include "headers/return_data.hpp" 
+    #include "headers/symbol_table.h"
     using namespace std;
 
     extern ofstream parserLogFile;
@@ -23,8 +23,7 @@ options {
 @parser::members {
     SymbolTable *st = new SymbolTable(7);
     string current_type = "";
-    string current_func = "";
-    int param_count = 0;
+    bool isSemiColonError = true;
     vector<ReturnData> args;
     ReturnData buffer;
     void writeIntoparserLogFile(const string message) {
@@ -203,11 +202,11 @@ func_definition returns [ReturnData data]
                     if(name == ""){
                         writeIntoErrorFile(
                             "Error at line " + to_string($pl.data.line) + 
-                            ": " + to_string(i+1) + "th parameter's name not given in function declaration of " + $id->getText() + "\n\n"
+                            ": " + to_string(i+1) + "th parameter's name not given in function definition of " + $id->getText() + "\n\n"
                         );
                         writeIntoparserLogFile(
                             "Error at line " + to_string($pl.data.line) + 
-                            ": " + to_string(i+1) + "th parameter's name not given in function declaration of " + $id->getText() + "\n\n"
+                            ": " + to_string(i+1) + "th parameter's name not given in function definition of " + $id->getText() + "\n\n"
                         );
                         syntaxErrorCount++;
                     }
@@ -356,7 +355,6 @@ parameter_list returns [ReturnData data]
         $data.text = $prev_list.data.text + $cm->getText() + $ts.data.text + " " + $id->getText();
         $data.line = $id->getLine();
         $data.was_error = false;
-        param_count++;  
 
         auto sb = st->lookupCurrentScope($id->getText());
         if(sb == nullptr) {
@@ -419,7 +417,6 @@ parameter_list returns [ReturnData data]
     | ts=type_specifier id=ID {
         $data.text = $ts.data.text + " " + $id->getText();
         $data.line = $id->getLine();
-        param_count++;
 
         auto sb = st->lookupCurrentScope($id->getText());
         if(sb == nullptr) {
@@ -461,9 +458,6 @@ returns [ReturnData data]
 	: LCURL {
         if(!isFunction){
             st->enter_scope();
-            int line = $LCURL->getLine();
-            cout<< "Entering scope for compound statement- > line"<< to_string(line) << endl;
-            st->print_all_scope();
         }
     }
      stmts=statements RCURL  {
@@ -787,7 +781,7 @@ statements returns [ReturnData data]
             " statements : statement\n\n" +
             $data.text + "\n\n\n"
         );
-    }
+    }  
     ;
 
 statement returns [ReturnData data]
@@ -842,7 +836,6 @@ statement returns [ReturnData data]
             $data.text + "\n\n"
         );
     }
-
     |   kw_while=WHILE lp_while=LPAREN expr_while=expression rp_while=RPAREN stmt_while=statement {
         $data.text = $kw_while->getText()+" " + $lp_while->getText() + $expr_while.data.text + $rp_while->getText() + $stmt_while.data.text;
         $data.line = $stmt_while.data.line;
@@ -898,8 +891,55 @@ statement returns [ReturnData data]
             $data.text + "\n\n"
         );
     }
+    |err=expression_error SEMICOLON {
+        $data.text = $err.data.text + $SEMICOLON->getText();
+        $data.line = $SEMICOLON->getLine();
+        writeIntoparserLogFile(
+            "Line "+to_string($data.line) + ":" +
+            " statements : expression_error SEMICOLON\n\n" +
+            $data.text + "\n\n"
+        );
+        isSemiColonError = true;
+    }
+    | err=expression_error {
+        $data.text = "";
+        $data.line = $err.data.line;
+        isSemiColonError = true;
+    }
     ;
-      
+
+expression_error returns [ReturnData data]
+    : var=variable ASSIGNOP sim_expr=simple_expression (ADDOP|MULOP) as = ASSIGNOP {
+        writeIntoErrorFile(
+            "Error at line " + to_string($as->getLine()) + 
+            ": syntax error\n\n"
+        );
+        writeIntoparserLogFile(
+            "Error at line " + to_string($as->getLine()) + 
+            ": syntax error\n\n"
+        );
+        syntaxErrorCount++;
+    } expr=expression {
+        $data.text = $var.data.text + $ASSIGNOP->getText() + $sim_expr.data.text ;
+        $data.line = $expr.data.line; 
+        $data.type = $sim_expr.data.type; 
+        isSemiColonError = false;
+    }
+    | iv=INVALID_CHAR{
+        $data.text = "";
+        $data.line = $iv->getLine();
+        writeIntoErrorFile(
+            "Error at line " + to_string($data.line) + 
+            ": Unrecognized character " + $iv->getText() + "\n\n"
+        );
+        writeIntoparserLogFile(
+            "Error at line " + to_string($data.line) + 
+            ": Unrecognized character " + $iv->getText() + "\n\n"
+        );
+        syntaxErrorCount++;
+    }
+    ;
+          
 expression_statement returns [ReturnData data]
     : sm=SEMICOLON {
         $data.text = $sm->getText();
@@ -921,16 +961,19 @@ expression_statement returns [ReturnData data]
     }
     | expr=expression {
         $data.text = "";
-        $data.line = $expr.data.line; 
-        writeIntoErrorFile(
-            "Error at line " + to_string($data.line) + 
-            ": Expression not terminated with semicolon\n\n"
-        );
-        writeIntoparserLogFile(
-            "Line " + to_string($data.line) + ":" +
-            " expression_statement : expression\n\n" +
-            $data.text + "\n\n"
-        );
+        $data.line = $expr.data.line;
+        if(isSemiColonError){
+            writeIntoErrorFile(
+                "Error at line " + to_string($data.line) + 
+                ": Missing semicolon\n\n"
+            );
+            writeIntoparserLogFile(
+                "Error at line " + to_string($data.line) + 
+                ": Missing semicolon\n\n"
+            );
+            isSemiColonError = false;
+        } 
+        isSemiColonError = true;
         syntaxErrorCount++;
     }
     ;
@@ -1035,7 +1078,7 @@ variable returns [ReturnData data]
 expression returns [ReturnData data]
     : le=logic_expression {
         $data = $le.data;
-        $data.type = $le.data.type; // Assuming logic_expression does not change type
+        $data.type = $le.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " expression : logic expression\n\n" +
@@ -1088,7 +1131,7 @@ expression returns [ReturnData data]
 logic_expression returns [ReturnData data]
     : re=rel_expression {
         $data = $re.data;
-        $data.type = $re.data.type; // Assuming rel_expression does not change type
+        $data.type = $re.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " logic_expression : rel_expression\n\n" +
@@ -1110,11 +1153,11 @@ logic_expression returns [ReturnData data]
         );
     }
     ;
-            
+  
 rel_expression returns [ReturnData data]
     : se=simple_expression {
         $data = $se.data;
-        $data.type = $se.data.type; // Assuming simple_expression does not change type
+        $data.type = $se.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " rel_expression : simple_expression\n\n" +
@@ -1137,7 +1180,7 @@ rel_expression returns [ReturnData data]
 simple_expression returns [ReturnData data]
     : t=term {
         $data = $t.data;
-        $data.type = $t.data.type; // Assuming term does not change type
+        $data.type = $t.data.type;
         writeIntoparserLogFile(
             "Line " + to_string($data.line) + ":" +
             " simple_expression : term\n\n" +
@@ -1159,20 +1202,6 @@ simple_expression returns [ReturnData data]
             " simple_expression : simple_expression ADDOP term\n\n" +
             $data.text + "\n\n"
         );
-    }
-    | se=simple_expression op=(ADDOP|SUBOP|MULOP) (ASSIGNOP){
-        $data.text = $se.data.text + $op->getText() ;
-        $data.line = $se.data.line; 
-        $data.type = "UNKNOWN"; // Assignment with ADDP, SUBOP, or MULOP is not valid in simple_expression
-        writeIntoErrorFile(
-            "Error at line " + to_string($data.line) + ":" +
-            " syntax error,unexpected ASSIGNOP\n\n" 
-        );
-        writeIntoparserLogFile(
-            "Error at line " + to_string($data.line) + ":" +
-            " syntax error,unexpected ASSIGNOP\n\n" 
-        );
-        syntaxErrorCount++;
     }
     ;
                     
@@ -1345,6 +1374,16 @@ factor returns [ReturnData data]
         } else if(sb->isFunction()) {
             if(!sb->isDefined()) {
                 //hook for checking error
+                writeIntoErrorFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Undefined function " + $id_tok->getText()+"\n\n"
+                );
+                writeIntoparserLogFile(
+                    "Error at line " + to_string($data.line) + 
+                    ": Undefined function " + $id_tok->getText()+"\n\n"
+                );
+                syntaxErrorCount++;
+                $data.type = "UNKNOWN";
             } else {
                 //hook for checking if the defined prototype matches the declaration
                 //no checking for simplicity

@@ -27,9 +27,9 @@ int main(int argc, const char* argv[]) {
     }
 
     string outputDirectory = "output/";
-    string parserLogFileName = outputDirectory + "parserLog.txt";
-    string errorFileName = outputDirectory + "errorLog.txt";
-    string lexLogFileName = outputDirectory + "lexerLog.txt";
+    string parserLogFileName = outputDirectory + "log.txt";
+    string errorFileName = outputDirectory + "error.txt";
+    string lexLogFileName = outputDirectory + "lexer.txt";
 
     // create output directory if it doesn't exist
     system(("mkdir -p " + outputDirectory).c_str());

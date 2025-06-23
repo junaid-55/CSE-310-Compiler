@@ -136,3 +136,9 @@ CONST_FLOAT
         );
     }
     ;
+INVALID_CHAR :[#@$?~`] {
+    writeIntoLexLogFile(
+      "Line# " + to_string(getLine())
+      + ": Token <INVALID CHAR> Lexeme " + getText()
+    );
+};

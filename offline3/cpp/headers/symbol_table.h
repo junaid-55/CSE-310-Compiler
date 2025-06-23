@@ -96,7 +96,7 @@ public:
     }
 
     void setNext(SymbolInfo* next) { this->next = next; }
-    string to_string() const{return "< "+ name + " : ID >" ;};
+    string to_string() const{return "< "+ name + " , ID >" ;};
     string getDebugData() const;
     bool operator==(const SymbolInfo* symbol) const;
     FunctionData* getFunctionData() const { return function_data; }
