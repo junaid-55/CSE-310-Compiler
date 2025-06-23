@@ -96,7 +96,7 @@ public:
     }
 
     void setNext(SymbolInfo* next) { this->next = next; }
-    string to_string() const{return "< "+ name + " , ID >" ;};
+    string to_string() const{return "< "+ name + " : ID >" ;};
     string getDebugData() const;
     bool operator==(const SymbolInfo* symbol) const;
     FunctionData* getFunctionData() const { return function_data; }
@@ -135,7 +135,6 @@ class SymbolTable {
     ScopeTable* current_scope;
     int size;
     int scope_count;
-    bool exitingScope;
     string hash_function;
     HashFunction hash;
     Hash_analysis* hash_analysis;

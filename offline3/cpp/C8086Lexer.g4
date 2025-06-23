@@ -110,14 +110,6 @@ RELOP    : '<=' | '==' | '>=' | '>' | '<' | '!=' { writeIntoLexLogFile("Line# " 
 LOGICOP  : '&&' | '||' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <LOGICOP> Lexeme " + getText()); };
 ASSIGNOP : '=' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <ASSIGNOP> Lexeme " + getText()); };
 
-INVALID_CHAR : [+\-*/%&|^!~`@#;:?"'\\<>,]+ {
-    writeIntoLexLogFile(
-      "Line# " + to_string(getLine())
-      + ": Token <INVALID_CHAR> Lexeme " + getText()
-    );
-    throw runtime_error("Invalid character: " + getText());
-} -> skip;
-    
 // ------------------------------
 // 5) Identifiers & Numbers
 // ------------------------------

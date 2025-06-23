@@ -1,12 +1,7 @@
 #include "symbol_table.h"
 
-using std::string;
-using std::ofstream;
-using std::istringstream;
-using std::cout;
-using std::endl;
-// using namespace std;
-// Hash_analysis implementation
+using namespace std;
+
 Hash_analysis::Hash_analysis() {
     collision_count = 0;
     total_inserted = 0;
@@ -14,7 +9,6 @@ Hash_analysis::Hash_analysis() {
     scope_count = 0;
 }
 
-// FunctionData implementation
 FunctionData::FunctionData(const string& declaration) {
     return_type = "";
     function_name = "";
@@ -60,7 +54,7 @@ void FunctionData::parse(string declaration) {
         }
     }
 
-    // 🧠 Parse each parameter into (type, name) pair
+    //  (type, name) pairs
     if (!parameters.empty()) {
         istringstream param_stream(parameters);
         string param;
@@ -76,7 +70,6 @@ void FunctionData::parse(string declaration) {
     }
 }
 
-// SymbolInfo implementation
 SymbolInfo::SymbolInfo(const string& name, const string& type, bool is_declared, bool is_defined) {
     this->name = name;
     this->type = type;
@@ -95,7 +88,6 @@ SymbolInfo::SymbolInfo(const string& name, const string& type, bool is_declared,
 
 SymbolInfo::~SymbolInfo() {
     delete function_data;
-    // Prevent recursive deletion of next to avoid double-free
     next = nullptr;
 }
 
@@ -110,7 +102,7 @@ string SymbolInfo::getDebugData() const {
             result += param.first + " " + param.second + ", ";
         }
         if (!function_data->getParameters().empty())
-            result.pop_back(); // Remove last space
+            result.pop_back();
         result += "\n";
         if (is_declared) {
             result += "Declared: true\n";
@@ -135,7 +127,6 @@ bool SymbolInfo::operator==(const SymbolInfo* symbol) const {
     return (this->name == symbol->name && this->type == symbol->type);
 }
 
-// ScopeTable implementation
 ScopeTable::ScopeTable(int n, HashFunction hash, Hash_analysis* hash_analysis) {
     this->size = n;
     buckets = new SymbolInfo*[size]();
@@ -258,9 +249,9 @@ void ScopeTable::print(ofstream& out) {
         SymbolInfo* curr = buckets[i];
         if (curr == nullptr)
             continue;
-        out << " " << i << " --> ";
+        out << i << " -->";
         while (curr != nullptr) {
-            out << curr->to_string() << " ";
+            out <<" "<< curr->to_string();
             curr = curr->getNext();
         }
         out << endl;
@@ -283,7 +274,6 @@ void ScopeTable::print(int indent) {
     }
 }
 
-// SymbolTable implementation
 SymbolTable::SymbolTable(int n) {
     this->hash_function = "SDBM";
     this->size = n;
@@ -291,7 +281,6 @@ SymbolTable::SymbolTable(int n) {
     this->hash_analysis = new Hash_analysis();
     this->hash_analysis->bucket_size = n;
     current_scope = nullptr;
-    exitingScope = false;
     if (hash_function == "SDBM")
         this->hash = sdbmHash;
     else if (hash_function == "DJB2")
@@ -319,15 +308,9 @@ void SymbolTable::enter_scope() {
         new_scope->set_scope_id("1");
     } else {
         string parent_id = current_scope->get_scope_id();
-        if (exitingScope) {
-            size_t pos = parent_id.find_last_of('.');
-            auto last_num = stoi(parent_id.substr(pos + 1));
-            new_scope->set_scope_id(parent_id.substr(0, pos) + "." + std::to_string(current_scope->get_child_count()));
-        } else {
-            new_scope->set_scope_id(parent_id + ".1");
-        }
+        parent_id.append("."+to_string(current_scope->get_child_count()));
+        new_scope->set_scope_id(parent_id);
     }
-    exitingScope = false;
     this->current_scope = new_scope;
 }
 
@@ -338,7 +321,6 @@ void SymbolTable::exit_scope(bool override) {
     ScopeTable* parent_scope = this->current_scope->get_parent_scope();
     delete this->current_scope;
     this->current_scope = parent_scope;
-    exitingScope = true;
 }
 
 bool SymbolTable::insert(const string& name, const string& type, ofstream& out) {
