@@ -1,7 +1,7 @@
-parser grammar C8086Parser;
+parser grammar C2105006Parser;
 
 options {
-    tokenVocab = C8086Lexer;
+    tokenVocab = C2105006Lexer;
 }
 
 @parser::header {
@@ -9,7 +9,7 @@ options {
     #include <fstream>
     #include <string>
     #include <cstdlib>
-    #include "C8086Lexer.h"
+    #include "C2105006Lexer.h"
     #include "headers/return_data.hpp" 
     #include "headers/symbol_table.h"
     using namespace std;

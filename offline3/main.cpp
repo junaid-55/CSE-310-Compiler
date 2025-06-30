@@ -2,8 +2,8 @@
 #include <fstream>
 #include <string>
 #include "antlr4-runtime.h"
-#include "C8086Lexer.h"
-#include "C8086Parser.h"
+#include "C2105006Lexer.h"
+#include "C2105006Parser.h"
 using namespace antlr4;
 using namespace std;
 
@@ -55,9 +55,9 @@ int main(int argc, const char* argv[]) {
    
     // ---- Parsing Flow ----
     ANTLRInputStream input(inputFile);
-    C8086Lexer lexer(&input);
+    C2105006Lexer lexer(&input);
     CommonTokenStream tokens(&lexer);
-    C8086Parser parser(&tokens);
+    C2105006Parser parser(&tokens);
 
     // this is necessary to avoid the default error listener and use our custom error handling
     parser.removeErrorListeners();
