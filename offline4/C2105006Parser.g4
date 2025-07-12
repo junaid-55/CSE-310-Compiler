@@ -33,6 +33,7 @@ options {
         vector<int> truelist; 
         vector<int> falselist;
         vector<int> nextlist;
+        ExpressionResult() : truelist(), falselist(), nextlist() {}
     };
 
     void writeIntoparserLogFile(const string message) {
@@ -313,17 +314,18 @@ parameter_list
     | type_specifier
     ;
 
-compound_statement[bool isFunction]
+compound_statement[bool isFunction] returns [vector<int> nextList]
     : LCURL {
         if (!isFunction) 
             st->enter_scope();
-    } statements RCURL {
+    } st=statements RCURL {
         if (isFunction) {
             st->print_all_scope();
         }
         if (!isFunction) {
             st->exit_scope();
         }
+        $nextList = $st.nextList;
     }
     | LCURL {
         if (!isFunction)
@@ -335,49 +337,61 @@ compound_statement[bool isFunction]
         if (!isFunction) {
             st->exit_scope();
         }
+        $nextList = vector<int>{};
     }
     ;
 
-statements
-    : printLabel statement
-    | statements printLabel statement
-    ;
-
-statement
-    : var_declaration
-    | expression_statement
-    | compound_statement[false]
-    | FOR LPAREN expression_statement expression_statement expression RPAREN statement
-    | IF LPAREN expression RPAREN {
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tCMP AX, 0\n");
-        code.push_back("\tJE PLACEHOLDER\n");  // Jump to end if FALSE
-        patches.push_back(code.size()-1);
-    } statement {
-        string endLabel = label->getNextLabel();
-        code.push_back(endLabel + ":\n");
-        if (!patches.empty()) {
-            int patchPos = patches.back();
-            patches.pop_back();
-            code[patchPos] = "\tJE " + endLabel + "\n";  
+statements returns [vector<int> nextList]
+    : pl1=printLabel s1=statement {
+        $nextList = $s1.nextList;
+    }
+    | s=statements pl1=printLabel s2=statement pl2=printLabel {
+        code.push_back(";coming for backpatching nextlist\n");
+        if(!$s2.nextList.empty()) {
+            backpatch($s2.nextList, $pl2.label);
         }
-    } 
-    | IF LPAREN expression RPAREN {
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tCMP AX, 0\n");
-        string elseLabel = label->getNextLabel();
-        code.push_back("\tJE " + elseLabel + "\n");  // Jump to ELSE if FALSE
-    } statement {
-        string elseLabel = label->getSkippedLabel(1);
-        string endLabel = label->getCurrentLabel();
-        code.push_back("\tJMP " + endLabel + "\n");  // Jump over ELSE
-        code.push_back(elseLabel + ":\n");
-    } ELSE statement {
-        string endLabel = label->getSkippedLabel(1);
-        code.push_back(endLabel + ":\n");
+        $nextList = $s2.nextList;
     }
+    ;
+
+statement returns [vector<int> nextList]
+    : var_declaration{
+        $nextList = vector<int>{};  // No next list for variable declaration
+    }
+    | expression_statement{
+        $nextList = vector<int>{};  // No next list for variable declaration
+    }
+    | cs=compound_statement[false]{
+        $nextList = $cs.nextList;  // No next list for compound statement
+    }
+    | FOR LPAREN expression_statement expression_statement expression RPAREN statement{
+        auto forLabel = label->getNextLabel();
+        code.push_back(forLabel + ":\n");
+        code.push_back("\t" + $expression_statement.text + "\n");
+        code.push_back("\t" + $expression.text + "\n");
+        code.push_back("\t" + $expression_statement.text + "\n");
+        code.push_back("\tJMP " + forLabel + "\n");
+        $nextList = $statement.nextList;  // Carry forward nextlist of the most recent stmt
+    }
+    | IF LPAREN expression RPAREN pl1=printLabel s1=statement next  ELSE pl2=printLabel s2=statement {
+        backpatch($expression.result.truelist, $pl1.label); // True → then-block
+        backpatch($expression.result.falselist, $pl2.label); // False → else-block
+        $nextList = merge(merge($s1.nextList, $next.nextList), $s2.nextList);
+    }
+
     
-    | WHILE LPAREN expression RPAREN statement
+    | IF LPAREN expression RPAREN pl=printLabel st=statement {
+        backpatch($expression.result.truelist, $pl.label);  
+        $nextList = merge($expression.result.falselist, $st.nextList);
+    }
+
+
+    | WHILE pl1=printLabel LPAREN expr=expression RPAREN pl2=printLabel st=statement{
+        backpatch($st.nextList, $pl1.label); 
+        backpatch($expr.result.truelist, $pl2.label);
+        $nextList =$expr.result.falselist;
+        code.push_back("\tJMP " + $pl1.label + "\n");
+    }
     | PRINTLN LPAREN ID RPAREN SEMICOLON {
         auto sb = st->lookup($ID->getText()); 
         auto scope_id = st->get_scope_id(sb);
@@ -389,9 +403,25 @@ statement
         code.push_back("\tCALL print_output\n");
         code.push_back("\tCALL new_line\n");
     }
-    | RETURN expression SEMICOLON
+    | RETURN expression SEMICOLON{
+        // if ($expression.result.truelist.empty() && $expression.result.falselist.empty()) {
+        //     code.push_back("\tPOP AX\n");
+        // } else {
+        //     string trueLabel = label->getNextLabel();
+        //     string falseLabel = label->getNextLabel();
+        //     string endLabel = label->getNextLabel();
+        //     backpatch($expression.result.truelist, trueLabel);
+        //     backpatch($expression.result.falselist, falseLabel);
+        //     code.push_back(trueLabel + ":\n");
+        //     code.push_back("\tMOV AX, 1\n");
+        //     code.push_back("\tJMP " + endLabel + "\n");
+        //     code.push_back(falseLabel + ":\n");
+        //     code.push_back("\tMOV AX, 0\n");
+        //     code.push_back(endLabel + ":\n");
+        // }
+        // code.push_back("\tRET\n");
+    }
     ;
-
 
 expression_statement
     : SEMICOLON
@@ -411,97 +441,95 @@ variable returns [string text]
     | ID LTHIRD expression RTHIRD
     ;
 
-expression
-    : logic_expression
-    | var=variable ASSIGNOP logic_expression{
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tMOV " + $variable.text + ", AX\n");
+expression returns [ExpressionResult result]
+    : logic=logic_expression {
+        $result = $logic.result;
+    }
+    | var=variable ASSIGNOP logic=logic_expression {
+        if (!$logic.result.truelist.empty() || !$logic.result.falselist.empty()) {
+            string trueLabel = label->getNextLabel();
+            string falseLabel = label->getNextLabel();
+            string endLabel = label->getNextLabel();
+            backpatch($logic.result.truelist, trueLabel);
+            backpatch($logic.result.falselist, falseLabel);
+            code.push_back(trueLabel + ":\n");
+            code.push_back("\tMOV AX, 1\n");
+            code.push_back("\tMOV " + $var.text + ", AX\n");
+            code.push_back("\tJMP " + endLabel + "\n");
+            code.push_back(falseLabel + ":\n");
+            code.push_back("\tMOV AX, 0\n");
+            code.push_back("\tMOV " + $var.text + ", AX\n");
+            code.push_back(endLabel + ":\n");
+        } else {
+            // CASE 2: Numeric assignment — just move value
+            code.push_back("\tPOP AX\n");
+            code.push_back("\tMOV " + $var.text + ", AX\n");
+        }
     }
     ;
 
-logic_expression
-    : rel_expression
-    | left=rel_expression LOGICOP {
-        code.push_back("\tPOP AX\n");      // Get left operand result
-        code.push_back("\tCMP AX, 0\n");   
-        
-        string shortCircuitLabel = label->getNextLabel();  
-        string endLabel = label->getNextLabel();          
-        
-        if ($LOGICOP->getText() == "&&") {
-            // AND: if left is false, short-circuit to false
-            code.push_back("\tJE " + shortCircuitLabel + "\n");
-        } else if ($LOGICOP->getText() == "||") {
-            // OR: if left is true, short-circuit to true
-            code.push_back("\tJNE " + shortCircuitLabel + "\n");  
+logic_expression returns [ExpressionResult result]
+    : r=rel_expression{
+        $result = $r.result;
+    }
+    | left=rel_expression LOGICOP right=rel_expression {
+        $result = ExpressionResult();
+        string newLabel = label->getNextLabel();
+        if($LOGICOP->getText() == "&&"){
+            backpatch($left.result.truelist, newLabel);
+            $result.truelist = $right.result.truelist;
+            $result.falselist = merge($left.result.falselist, $right.result.falselist);
         }
-    } right=rel_expression {
-        // Normal evaluation: combine left and right
-        code.push_back("\tPOP AX\n");      // Right operand result
-        
-        if ($LOGICOP->getText() == "&&") {
-            // Both operands evaluated, AND logic
-            code.push_back("\tCMP AX, 0\n");
-            string falseLabel = label->getNextLabel();  // Create new label variable
-            code.push_back("\tJE " + falseLabel + "\n");  
-            code.push_back("\tPUSH 1\n");   // Both true, result = true
-            code.push_back("\tJMP " + endLabel + "\n");
-            
-            // False case for AND normal evaluation
-            code.push_back(falseLabel + ":\n");
-            code.push_back("\tPUSH 0\n");
-        } else if ($LOGICOP->getText() == "||") {
-            // Left was false, right was evaluated
-            code.push_back("\tCMP AX, 0\n");
-            code.push_back("\tJE " + endLabel + "\n");   // If right is false, push 0
-            code.push_back("\tPUSH 1\n");               // Right is true, push 1
+        else if($LOGICOP->getText() == "||") {
+            backpatch($left.result.falselist, newLabel);
+            $result.truelist = merge($left.result.truelist, $right.result.truelist);
+            $result.falselist = $right.result.falselist;
         }
-        
-        code.push_back("\tJMP " + endLabel + "\n");
-        
-        // Short-circuit label (reuse the variable, don't redeclare)
-        code.push_back(shortCircuitLabel + ":\n");
-        if ($LOGICOP->getText() == "&&") {
-            code.push_back("\tPUSH 0\n");   // AND short-circuit = false
-        } else if ($LOGICOP->getText() == "||") {
-            code.push_back("\tPUSH 1\n");   // OR short-circuit = true  
-        }
-        
-        // End label
-        code.push_back(endLabel + ":\n");
+        code.push_back(newLabel + ":\n");
     }
     ;
-rel_expression
-    : simple_expression
+rel_expression returns [ExpressionResult result]
+    :  simple_expression{
+        // FIX: Convert a numeric value to a boolean context.
+        // Any non-zero value is true, zero is false.
+        code.push_back("\tPOP AX\n");
+        code.push_back("\tCMP AX, 0\n");
+        code.push_back("\tJNE PLACEHOLDER\n"); // JUMP IF NOT ZERO (TRUE)
+        $result.truelist = makelist(code.size() - 1);
+        code.push_back("\tJMP PLACEHOLDER\n"); // JUMP IF ZERO (FALSE)
+        $result.falselist = makelist(code.size() - 1);
+    }
     | simple_expression RELOP simple_expression{
+        $result = ExpressionResult();
         code.push_back("\tPOP BX\n");
         code.push_back("\tPOP AX\n");
         code.push_back("\tCMP AX, BX\n");
 
         if ($RELOP->getText() == "==") {
-            code.push_back("\tJE " + label->getSkippedLabel(1) + "\n");
+            code.push_back("\tJE PLACEHOLDER\n");
         } else if ($RELOP->getText() == "!=") {
-            code.push_back("\tJNE " + label->getSkippedLabel(1) + "\n");
+            code.push_back("\tJNE PLACEHOLDER\n");
         } else if ($RELOP->getText() == "<") {
-            code.push_back("\tJL " + label->getSkippedLabel(1) + "\n");
+            code.push_back("\tJL PLACEHOLDER\n");
         } else if ($RELOP->getText() == "<=") {
-            code.push_back("\tJLE " + label->getSkippedLabel(1) + "\n");
+            code.push_back("\tJLE PLACEHOLDER\n");
         } else if ($RELOP->getText() == ">") {
-            code.push_back("\tJG " + label->getSkippedLabel(1) + "\n");
+            code.push_back("\tJG PLACEHOLDER\n");
         } else if ($RELOP->getText() == ">=") {
-            code.push_back("\tJGE " + label->getSkippedLabel(1) + "\n");
+            code.push_back("\tJGE PLACEHOLDER\n");
         }
-        code.push_back("\tPUSH 0\n"); // Push true
-        code.push_back("\tJMP " + label->getSkippedLabel(2) + "\n");
-        code.push_back(label->getNextLabel() + ":\n");
-        code.push_back("\tPUSH 1\n"); // Push false
-        code.push_back(label->getNextLabel() + ":\n");
+        $result.truelist = makelist(code.size() - 1);
+        code.push_back("\tJMP PLACEHOLDER\n");
+        $result.falselist = makelist(code.size() - 1);
     }
     ;
 
-simple_expression
-    : term 
+simple_expression returns [ExpressionResult result]
+    : term {
+        $result = ExpressionResult();
+    }
     | simple_expression ADDOP term {
+        $result = ExpressionResult();
         if ($ADDOP->getText() == "+") {
             code.push_back("\tPOP BX\n");
             code.push_back("\tPOP AX\n");
@@ -535,10 +563,8 @@ term
 
 unary_expression
     : ADDOP unary_expression {
-        code.push_back("\tPOP AX\n");
-        if ($ADDOP->getText() == "+") {
-            code.push_back("\tPUSH AX\n");
-        } else if ($ADDOP->getText() == "-") {
+        if ($ADDOP->getText() == "-") {
+            code.push_back("\tPOP AX\n");
             code.push_back("\tNEG AX\n");
             code.push_back("\tPUSH AX\n");
         }
@@ -560,14 +586,16 @@ factor
     }
     | CONST_FLOAT
     | var=variable INCOP {
+        // Correct post-increment: push old value, then increment
         code.push_back("\tMOV AX, " + $var.text + "\n");
-        code.push_back("\tINC AX\n");
-        code.push_back("\tMOV " + $var.text + ", AX\n");
+        code.push_back("\tPUSH AX\n");
+        code.push_back("\tINC " + $var.text + "\n");
     }
     | var=variable DECOP {
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tDEC AX\n");
-        code.push_back("\tMOV " + $var.text + ", AX\n");
+        // Correct post-decrement: push old value, then decrement
+        code.push_back("\tMOV AX, " + $var.text + "\n");
+        code.push_back("\tPUSH AX\n");
+        code.push_back("\tDEC " + $var.text + "\n");
     }
     ;
 
@@ -581,8 +609,15 @@ arguments
     | logic_expression
     ;
 
-printLabel
+printLabel returns [string label]
     : /* empty */ {
         code.push_back(label->getNextLabel() + ":\n");
+        $label = label->getCurrentLabel();
+    }
+    ;
+next returns [vector<int> nextList]
+    : { 
+        code.push_back("\tJMP PLACEHOLDER\n");
+        $nextList = makelist(code.size() - 1); 
     }
     ;
