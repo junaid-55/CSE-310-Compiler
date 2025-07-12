@@ -6,15 +6,16 @@
 #include <sstream>
 #include <fstream>
 #include <vector>
-
+#include <utility>
 #include "hash.h"
 using namespace std;
-using std::string;
 using std::ofstream;
+using std::string;
 
-typedef unsigned int (*HashFunction)(const string&, unsigned int);
+typedef unsigned int (*HashFunction)(const string &, unsigned int);
 
-struct Hash_analysis {
+struct Hash_analysis
+{
     int collision_count;
     int total_inserted;
     int bucket_size;
@@ -23,121 +24,141 @@ struct Hash_analysis {
     Hash_analysis();
 };
 
-class FunctionData {
-    public:
+class FunctionData
+{
+public:
     string return_type;
     string function_name;
-    vector<pair<string,string>> parameter_list;
+    vector<pair<string, string>> parameter_list;
     int parameter_count;
 
-    FunctionData(const string& declaration);
+    FunctionData(const string &declaration);
     void parse(string declaration);
     string getReturnType() const { return return_type; }
     string getFunctionName() const { return function_name; }
-    vector<pair<string,string>> getParameters() const { return parameter_list; }
+    vector<pair<string, string>> getParameters() const { return parameter_list; }
     int getParameterCount() const { return parameter_count; }
-    
-    string toUpperCase(string  name) const {
+
+    string toUpperCase(string name) const
+    {
         string result = name;
-        for (char& c : result) {
+        for (char &c : result)
+        {
             c = toupper(c);
         }
         return result;
     }
 };
 
-class SymbolInfo {
+class SymbolInfo
+{
     string name;
     string type;
     bool is_function;
-    FunctionData* function_data;
+    FunctionData *function_data;
     bool is_defined;
     bool is_declared;
     bool is_array = false;
-    SymbolInfo* next;
+    int stack_offset, array_size;
+    SymbolInfo *next;
 
 public:
-    SymbolInfo(const string& name, const string& type, bool is_declared = false, bool is_defined = false);
+    SymbolInfo(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size, int stack_offset);
     ~SymbolInfo();
 
+    void setArraySize(int array_size) { this->array_size = array_size; }
+    int getArraySize() const { return array_size; }
     void setDefined(bool is_defined) { this->is_defined = is_defined; }
     void setDeclared(bool is_declared) { this->is_declared = is_declared; }
     string getName() const { return name; }
     string getType() const { return type; }
-    SymbolInfo* getNext() const { return next; }
+    SymbolInfo *getNext() const { return next; }
     bool isFunction() const { return is_function; }
     bool isDefined() const { return is_defined; }
     bool isDeclared() const { return is_declared; }
     void setArray(bool is_array) { this->is_array = is_array; }
     bool isArray() const { return is_array; }
-    string getFunctionName() const {
-        if (is_function && function_data != nullptr) {
+    bool isGlobal() const{ return stack_offset == 0; }
+    int getStackOffset() const { return stack_offset; }
+    string getFunctionName() const
+    {
+        if (is_function && function_data != nullptr)
+        {
             return function_data->getFunctionName();
         }
         return "";
     }
-    string getReturnType() const {
-        if (is_function && function_data != nullptr) {
+    string getReturnType() const
+    {
+        if (is_function && function_data != nullptr)
+        {
             return function_data->getReturnType();
         }
         return "";
     }
-    vector<pair<string,string>> getParameters() const {
-        if (is_function && function_data != nullptr) {
+    vector<pair<string, string>> getParameters() const
+    {
+        if (is_function && function_data != nullptr)
+        {
             return function_data->getParameters();
         }
         return {};
     }
-    int getParameterCount() const {
-        if (is_function && function_data != nullptr) {
+    int getParameterCount() const
+    {
+        if (is_function && function_data != nullptr)
+        {
             return function_data->getParameterCount();
         }
         return 0;
     }
 
-    void setNext(SymbolInfo* next) { this->next = next; }
-    string to_string() const{return "< "+ name + " , ID >" ;};
+    void setNext(SymbolInfo *next) { this->next = next; }
+    string to_string() const { return "< " + name + " , " + type + " , " + std::to_string(stack_offset) + " >"; };
     string getDebugData() const;
-    bool operator==(const SymbolInfo* symbol) const;
-    FunctionData* getFunctionData() const { return function_data; }
+    bool operator==(const SymbolInfo *symbol) const;
+    FunctionData *getFunctionData() const { return function_data; }
 };
 
-class ScopeTable {
-    SymbolInfo** buckets;
-    ScopeTable* parent_scope;
+class ScopeTable
+{
+    SymbolInfo **buckets;
+    ScopeTable *parent_scope;
+    int stack_offset;
     int size;
     int child_count;
     string scope_id;
-    Hash_analysis* hash_analysis;
+    Hash_analysis *hash_analysis;
     HashFunction hash;
 
 public:
-    ScopeTable(int n, HashFunction hash, Hash_analysis* hash_analysis);
+    ScopeTable(int n, HashFunction hash, Hash_analysis *hash_analysis);
     ~ScopeTable();
 
     void increase_child_count();
     int get_child_count() const { return child_count; }
-    void set_scope_id(const string& scope_id) { this->scope_id = scope_id; }
-    void set_Parent_scope(ScopeTable* parent_scope) { this->parent_scope = parent_scope; }
+    void set_scope_id(const string &scope_id) { this->scope_id = scope_id; }
+    void set_Parent_scope(ScopeTable *parent_scope) { this->parent_scope = parent_scope; }
     string get_scope_id() const { return scope_id; }
-    ScopeTable* get_parent_scope() const { return parent_scope; }
+    ScopeTable *get_parent_scope() const { return parent_scope; }
 
-    bool insert(const string& name, const string& type, ofstream& out);
-    bool insert(const string& name, const string& type, bool is_declared = false, bool is_defined = false);
-    SymbolInfo* lookup(const string& name);
-    SymbolInfo* lookupCurrentScope(const string& name);
-    bool delete_symbol(const string& name);
-    void print(ofstream& out);
+    bool insert(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0);
+
+    SymbolInfo *lookup(const string &name);
+    SymbolInfo *lookupCurrentScope(const string &name);
+    bool delete_symbol(const string &name);
+    void print(ofstream &out);
     void print(int indent = 0);
 };
 
-class SymbolTable {
-    ScopeTable* current_scope;
+class SymbolTable
+{
+    ScopeTable *current_scope;
     int size;
     int scope_count;
     string hash_function;
     HashFunction hash;
-    Hash_analysis* hash_analysis;
+    Hash_analysis *hash_analysis;
 
 public:
     SymbolTable(int n);
@@ -145,17 +166,43 @@ public:
 
     void enter_scope();
     void exit_scope(bool override = false);
-    bool insert(const string& name, const string& type, ofstream& out);
-    bool insert(const string& name, const string& type, bool is_declared = false, bool is_defined = false);
-    bool insertInParentScope(const string& name, const string& type, bool is_declared = false, bool is_defined = false);
-    bool delete_symbol(const string& name);
-    SymbolInfo* lookup(const string& name);
-    SymbolInfo* lookupCurrentScope(const string& name);
+    string get_current_scope_id() const
+    {
+        if (current_scope != nullptr)
+            return current_scope->get_scope_id();
+        return "";
+    }
+
+    bool insert(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0);
+
+    bool insertInParentScope(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0);
+
+    bool delete_symbol(const string &name);
+
+    string get_scope_id(SymbolInfo *symbol) const
+    {
+        if (symbol != nullptr && current_scope != nullptr)
+        {
+            ScopeTable *scope = current_scope;
+            while (scope != nullptr)
+            {
+                SymbolInfo *found_symbol = scope->lookupCurrentScope(symbol->getName());
+                if (found_symbol != nullptr && found_symbol == symbol)
+                {
+                    return scope->get_scope_id();
+                }
+                scope = scope->get_parent_scope();
+            }
+        }
+        return "";
+    }
+    SymbolInfo *lookup(const string &name);
+    SymbolInfo *lookupCurrentScope(const string &name);
     void delete_all_scope();
     void print_current_scope();
     void print_all_scope();
     void print_all_scope(ofstream &out);
-    Hash_analysis* get_hash_analyser() const { return hash_analysis; }
+    Hash_analysis *get_hash_analyser() const { return hash_analysis; }
     string get_hash_function() const { return hash_function; }
 };
 

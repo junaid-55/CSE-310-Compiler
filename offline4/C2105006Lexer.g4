@@ -84,7 +84,7 @@ IF       : 'if' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token
 ELSE     : 'else' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <ELSE> Lexeme " + getText()); };
 FOR      : 'for' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <FOR> Lexeme " + getText()); };
 WHILE    : 'while' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <WHILE> Lexeme " + getText()); };
-PRINTLN  : 'printf' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <PRINTLN> Lexeme " + getText()); };
+PRINTLN  : 'println' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <PRINTLN> Lexeme " + getText()); };
 RETURN   : 'return' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <RETURN> Lexeme " + getText()); };
 INT      : 'int' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <INT> Lexeme " + getText()); };
 FLOAT    : 'float' { writeIntoLexLogFile("Line# " + to_string(getLine()) + ": Token <FLOAT> Lexeme " + getText()); };
