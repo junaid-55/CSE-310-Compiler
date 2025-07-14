@@ -1,8 +1,5 @@
-parser grammar C2105006Parser;
 
-options {
-    tokenVocab = C2105006Lexer;
-}
+options {}
 
 @parser::header {
 

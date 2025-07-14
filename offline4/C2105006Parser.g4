@@ -26,6 +26,7 @@ options {
 @parser::members {
     SymbolTable *st = new SymbolTable(7);
     Label *label = new Label();
+    enum ExprCtx { NUMERIC, BOOLEAN };
     vector<int> patches;
     string current_type = "";
     vector<string> data,code;
@@ -186,7 +187,7 @@ start
         data.push_back("\tnumber DB \"00000$\"\n");
     }
      program {
-        st->print_all_scope();
+        // st->print_all_scope();
         initializeUtilityProcedures();
         for(auto &d : data) {
             writeIntoAsmFile(d);
@@ -215,10 +216,16 @@ var_declaration
     : type_specifier declaration_list SEMICOLON
     ;
 
-type_specifier
-    : INT { current_type = "INT"; }
-    | FLOAT { current_type = "FLOAT"; }
-    | VOID  { current_type = "VOID"; }
+type_specifier returns [string text]
+    : INT { current_type = "INT"; 
+        $text = "INT";
+    }
+    | FLOAT { current_type = "FLOAT"; 
+        $text = "FLOAT";
+    }
+    | VOID  { current_type = "VOID"; 
+        $text = "VOID";
+    }
     ;
 
 declaration_list
@@ -238,7 +245,7 @@ declaration_list
         if(st->get_current_scope_id() == "1") {
             data.push_back($ID->getText() + " DW 0\n");
         } else{
-            code.push_back("SUB SP, 2\n");
+            code.push_back("\tSUB SP, 2\n");
         }
     }
     | ID LTHIRD CONST_INT RTHIRD {
@@ -247,9 +254,9 @@ declaration_list
     ;
 
 func_declaration
-    : type_specifier ID LPAREN {st->enter_scope();} parameter_list RPAREN SEMICOLON {
+    : type_specifier ID LPAREN {st->enter_scope();} pl=parameter_list RPAREN SEMICOLON {
         st->exit_scope();
-        string func_data = $type_specifier.text + " " + $ID->getText() + "(" + ($parameter_list.ctx ? $parameter_list.text : "") + ")";
+        string func_data = $type_specifier.text + " " + $ID->getText() + "(" +  $pl.data + ")";
         st->insert(func_data, "FUNCTION", true, false);
     }
     | type_specifier ID LPAREN {st->enter_scope();} RPAREN SEMICOLON {
@@ -259,30 +266,30 @@ func_declaration
     }
     ;
 
+// ...existing code...
 func_definition
-    : type_specifier ID LPAREN {st->enter_scope();} parameter_list RPAREN {
-        string func_data = $type_specifier.text + " " + $ID->getText() + "(" + ($parameter_list.ctx ? $parameter_list.text : "") + ")";
+    : type_specifier ID LPAREN {st->enter_scope();} pl=parameter_list RPAREN {
+        string func_data = $type_specifier.text + " " + $ID->getText() + "(" + $pl.data + ")";
         st->insertInParentScope(func_data, "FUNCTION", false, true);
-        code.push_back($ID->getText() + " PROC\n");
-        if($ID->getText() == "main") {
-            code.push_back("\tMOV AX, @DATA)\n");
-            code.push_back("\tMOV DS, AX\n");
+        auto sb = st->lookup($ID->getText());
+        sb->setInside(true);
+        auto params = sb->getParameters();
+        cout<<"DEBUG "<<func_data<<endl;
+        
+        // Process parameters in correct order for stack layout
+        for(int i = 0; i < params.size(); i++) {
+            string paramType = toUpperString(params[i].first);
+            string paramName = params[i].second;
+            cout<<"DEBUG PARAM: "<<paramName<<" "<<paramType<<endl;
+            st->insert(paramName, paramType, true, false, false, 0, true);
+            auto sb1 = st->lookup(paramName);
+            // Correct stack offset calculation: first param at BP+6, second at BP+4, etc.
+            sb1->setStackOffset((params.size() - i) * 2 + 2);
+            sb1->setIsParam(true);
         }
-        code.push_back("\tPUSH BP\n");
-        code.push_back("\tMOV BP, SP\n");
-    } compound_statement[true]{
-        if($ID->getText() == "main") {
-            code.push_back("\tMOV AX, 4C00H\n");
-            code.push_back("\tINT 21H\n");
-        }
-        code.push_back($ID->getText() + " ENDP\n");
-        // if($ID->getText() == "main") {
-        //     code.push_back("END main\n");
-        // }
-    }
-    | type_specifier ID LPAREN {st->enter_scope();} RPAREN {
-        string func_data = $type_specifier.text + " " + $ID->getText() + "()";
-        st->insertInParentScope(func_data, "FUNCTION", false, true);
+        
+        cout<<"DEBUG PRINT"<<$ID->getText()<<endl;
+        st->print_current_scope();
         code.push_back($ID->getText() + " PROC\n");
         if($ID->getText() == "main") {
             code.push_back("\tMOV AX, @DATA\n");
@@ -291,37 +298,86 @@ func_definition
         code.push_back("\tPUSH BP\n");
         code.push_back("\tMOV BP, SP\n");
     } compound_statement[true]{
+        auto sb2 = st->lookup($ID->getText());
+        sb2->setInside(false);
+        int top = st->getCurrentScopeStackTop();
+        if (top > 0) {
+            code.push_back("\tADD SP, " + to_string(top) + "\n");
+        }
         if($ID->getText() == "main") {
             code.push_back("\tMOV AX, 4C00H\n");
             code.push_back("\tINT 21H\n");
         }
+        if (!sb2->isReturned()) {
+            int arg_count = sb2->getParameters().size();
+            code.push_back("\tPOP BP\n");
+            if (arg_count > 0) {
+                code.push_back("\tRET " + to_string(arg_count * 2) + "\n");
+            } else {
+                code.push_back("\tRET\n");
+            }
+        }
+        sb2->setReturned(true);
         code.push_back($ID->getText() + " ENDP\n");
-        // if($ID->getText() == "main") {
-        //     code.push_back("END main\n");
-        // } 
+        cout<<"DEBUG PRINT END"<<$ID->getText()<<endl;
+        st->print_current_scope();
+        st->exit_scope();
+    }
+    | type_specifier ID LPAREN {st->enter_scope();} RPAREN {
+        string func_data = $type_specifier.text + " " + $ID->getText() + "()";
+        st->insertInParentScope(func_data, "FUNCTION", false, true);
+        auto sb = st->lookup($ID->getText());
+        sb->setInside(true);
+        code.push_back($ID->getText() + " PROC\n");
+        if($ID->getText() == "main") {
+            code.push_back("\tMOV AX, @DATA\n");
+            code.push_back("\tMOV DS, AX\n");
+        }
+        code.push_back("\tPUSH BP\n");
+        code.push_back("\tMOV BP, SP\n");
+    } compound_statement[true]{
+        auto sb1 = st->lookup($ID->getText());
+        sb1->setInside(false);            
+        int top = st->getCurrentScopeStackTop();
+        if (top > 0) {
+            code.push_back("\tADD SP, " + to_string(top) + "\n");
+        }
+        if($ID->getText() == "main") {
+            code.push_back("\tMOV AX, 4C00H\n");
+            code.push_back("\tINT 21H\n");
+        }
+        if (!sb1->isReturned()) {
+            code.push_back("\tPOP BP\n");
+            code.push_back("\tRET\n");
+        }
+        sb1->setReturned(true);
+        code.push_back($ID->getText() + " ENDP\n");
         st->exit_scope();
     }
     ;
 
-parameter_list
-    : parameter_list COMMA type_specifier ID {
-        st->insert($ID->getText(), toUpperString($type_specifier.text));
+parameter_list returns [string data]
+    : pl=parameter_list COMMA type_specifier ID{
+        $data = $pl.data + ", " + toUpperString($type_specifier.text) + " " + $ID->getText();
     }
-    | parameter_list COMMA type_specifier
+    | parameter_list COMMA type_specifier{
+        $data = $pl.data + ", " + toUpperString($type_specifier.text);
+    }
     | type_specifier ID {
-        st->insert($ID->getText(), toUpperString($type_specifier.text));
+        $data = toUpperString($type_specifier.text) + " " + $ID->getText();
     }
-    | type_specifier
+    | type_specifier{
+        $data = toUpperString($type_specifier.text);
+    }
     ;
+// ...existing code...
 
 compound_statement[bool isFunction] returns [vector<int> nextList]
     : LCURL {
         if (!isFunction) 
             st->enter_scope();
     } st=statements RCURL {
-        if (isFunction) {
-            st->print_all_scope();
-        }
+
         if (!isFunction) {
             st->exit_scope();
         }
@@ -332,7 +388,7 @@ compound_statement[bool isFunction] returns [vector<int> nextList]
             st->enter_scope();
     } RCURL {
         if (isFunction) {
-            st->print_all_scope();
+            // st->print_all_scope();
         }
         if (!isFunction) {
             st->exit_scope();
@@ -342,8 +398,12 @@ compound_statement[bool isFunction] returns [vector<int> nextList]
     ;
 
 statements returns [vector<int> nextList]
-    : pl1=printLabel s1=statement {
+    : pl1=printLabel s1=statement pl2=printLabel {
         $nextList = $s1.nextList;
+        code.push_back(";coming for backpatching nextlist\n");
+        if(!$s1.nextList.empty()) {
+            backpatch($s1.nextList, $pl2.label);
+        }
     }
     | s=statements pl1=printLabel s2=statement pl2=printLabel {
         code.push_back(";coming for backpatching nextlist\n");
@@ -364,30 +424,37 @@ statement returns [vector<int> nextList]
     | cs=compound_statement[false]{
         $nextList = $cs.nextList;  // No next list for compound statement
     }
-    | FOR LPAREN expression_statement expression_statement expression RPAREN statement{
-        auto forLabel = label->getNextLabel();
-        code.push_back(forLabel + ":\n");
-        code.push_back("\t" + $expression_statement.text + "\n");
-        code.push_back("\t" + $expression.text + "\n");
-        code.push_back("\t" + $expression_statement.text + "\n");
-        code.push_back("\tJMP " + forLabel + "\n");
-        $nextList = $statement.nextList;  // Carry forward nextlist of the most recent stmt
+    | FOR LPAREN 
+        expression_statement          // init
+        pl1=printLabel                // label before condition
+        expst=expression_statement    // condition (BOOLEAN)
+        pl2=printLabel                // label before update
+        expr=expression[NUMERIC]     // update
+        next
+        RPAREN
+        pl3=printLabel
+        statement
+    {
+        backpatch($expst.result.truelist, $pl3.label);
+        backpatch($next.nextList, $pl1.label); 
+        code.push_back("\tJMP " + $pl2.label + "\n");
+        $nextList = $expst.result.falselist;
     }
-    | IF LPAREN expression RPAREN pl1=printLabel s1=statement next  ELSE pl2=printLabel s2=statement {
+
+    | IF LPAREN expression[BOOLEAN] RPAREN pl1=printLabel s1=statement next  ELSE pl2=printLabel s2=statement {
         backpatch($expression.result.truelist, $pl1.label); // True → then-block
         backpatch($expression.result.falselist, $pl2.label); // False → else-block
         $nextList = merge(merge($s1.nextList, $next.nextList), $s2.nextList);
     }
 
-    
-    | IF LPAREN expression RPAREN pl=printLabel st=statement {
-        backpatch($expression.result.truelist, $pl.label);  
+    | IF LPAREN expression[BOOLEAN] RPAREN pl=printLabel st=statement {
+        backpatch($expression.result.truelist, $pl.label);
         $nextList = merge($expression.result.falselist, $st.nextList);
     }
 
 
-    | WHILE pl1=printLabel LPAREN expr=expression RPAREN pl2=printLabel st=statement{
-        backpatch($st.nextList, $pl1.label); 
+    | WHILE pl1=printLabel LPAREN expr=expression[BOOLEAN] RPAREN pl2=printLabel st=statement{
+        backpatch($st.nextList, $pl1.label);
         backpatch($expr.result.truelist, $pl2.label);
         $nextList =$expr.result.falselist;
         code.push_back("\tJMP " + $pl1.label + "\n");
@@ -403,29 +470,35 @@ statement returns [vector<int> nextList]
         code.push_back("\tCALL print_output\n");
         code.push_back("\tCALL new_line\n");
     }
-    | RETURN expression SEMICOLON{
-        // if ($expression.result.truelist.empty() && $expression.result.falselist.empty()) {
-        //     code.push_back("\tPOP AX\n");
-        // } else {
-        //     string trueLabel = label->getNextLabel();
-        //     string falseLabel = label->getNextLabel();
-        //     string endLabel = label->getNextLabel();
-        //     backpatch($expression.result.truelist, trueLabel);
-        //     backpatch($expression.result.falselist, falseLabel);
-        //     code.push_back(trueLabel + ":\n");
-        //     code.push_back("\tMOV AX, 1\n");
-        //     code.push_back("\tJMP " + endLabel + "\n");
-        //     code.push_back(falseLabel + ":\n");
-        //     code.push_back("\tMOV AX, 0\n");
-        //     code.push_back(endLabel + ":\n");
-        // }
-        // code.push_back("\tRET\n");
+    | RETURN expression[NUMERIC] SEMICOLON{
+        auto sb = st->insideFunction();
+        sb->setReturned(true);
+        code.push_back("\tPOP AX\n");
+        int top = st->getCurrentScopeStackTop();
+        if (top > 0) {
+            code.push_back("\tADD SP, " + to_string(top) + "\n");
+        }
+        code.push_back(label->getNextLabel() + ":\n");
+        code.push_back("\tPOP BP\n");
+        top = st->getCurrentScopeStackTop();
+        cout<<"DEGUG name:  "<<sb->getFunctionName()<<" type: "<<sb->getType()<<" top: "<<top<<endl;
+        if(sb->getFunctionName() != "main") {
+            if (sb->getType() == "VOID" || top == 0) {
+                code.push_back("\tRET\n");
+            } else {
+                code.push_back("\tRET "+to_string(top)+"\n");
+            }
+        }
     }
     ;
 
-expression_statement
-    : SEMICOLON
-    | expression SEMICOLON
+expression_statement returns[ExpressionResult result]
+    : SEMICOLON{
+        $result = ExpressionResult(); 
+    }
+    | expression[NUMERIC] SEMICOLON{
+        $result = $expression.result;
+    }
     ;
 
 variable returns [string text]
@@ -435,17 +508,21 @@ variable returns [string text]
         if (scope_id == "1") {
             $text = $ID->getText();
         } else {
-            $text = "[BP-" + to_string(sb->getStackOffset()) + "]";
+            if(sb->isParam()){
+                $text = "[BP+" + to_string(sb->getStackOffset()) + "]";
+            } else {
+                $text = "[BP-" + to_string(sb->getStackOffset()) + "]"; 
+            }
         }
     }
-    | ID LTHIRD expression RTHIRD
+    | ID LTHIRD expression[NUMERIC] RTHIRD
     ;
 
-expression returns [ExpressionResult result]
-    : logic=logic_expression {
+expression[ExprCtx ctx] returns [ExpressionResult result]
+    : logic=logic_expression[ctx] {
         $result = $logic.result;
     }
-    | var=variable ASSIGNOP logic=logic_expression {
+    | var=variable ASSIGNOP logic=logic_expression[NUMERIC] {
         if (!$logic.result.truelist.empty() || !$logic.result.falselist.empty()) {
             string trueLabel = label->getNextLabel();
             string falseLabel = label->getNextLabel();
@@ -468,11 +545,11 @@ expression returns [ExpressionResult result]
     }
     ;
 
-logic_expression returns [ExpressionResult result]
-    : r=rel_expression{
+logic_expression[ExprCtx ctx] returns [ExpressionResult result]
+    : r=rel_expression[ctx]{
         $result = $r.result;
     }
-    | left=rel_expression LOGICOP right=rel_expression {
+    | left=rel_expression[BOOLEAN] LOGICOP right=rel_expression[BOOLEAN] {
         $result = ExpressionResult();
         string newLabel = label->getNextLabel();
         if($LOGICOP->getText() == "&&"){
@@ -488,16 +565,18 @@ logic_expression returns [ExpressionResult result]
         code.push_back(newLabel + ":\n");
     }
     ;
-rel_expression returns [ExpressionResult result]
+rel_expression[ExprCtx ctx] returns [ExpressionResult result]
     :  simple_expression{
-        // FIX: Convert a numeric value to a boolean context.
-        // Any non-zero value is true, zero is false.
+        if(ctx == BOOLEAN){
         code.push_back("\tPOP AX\n");
         code.push_back("\tCMP AX, 0\n");
-        code.push_back("\tJNE PLACEHOLDER\n"); // JUMP IF NOT ZERO (TRUE)
+        code.push_back("\tJNE PLACEHOLDER\n");
         $result.truelist = makelist(code.size() - 1);
-        code.push_back("\tJMP PLACEHOLDER\n"); // JUMP IF ZERO (FALSE)
+        code.push_back("\tJMP PLACEHOLDER\n");
         $result.falselist = makelist(code.size() - 1);
+        } else {
+            $result = ExpressionResult();
+        }
     }
     | simple_expression RELOP simple_expression{
         $result = ExpressionResult();
@@ -575,27 +654,35 @@ unary_expression
 
 factor
     : var=variable {
-        code.push_back("MOV AX, " + $var.text + "\n");
+        code.push_back("\tMOV AX, " + $var.text + "\n");
         code.push_back("\tPUSH AX\t;Line "+ to_string($var.start->getLine()) + "\n");
     }
-    | ID LPAREN argument_list RPAREN
-    | LPAREN expression RPAREN
+    | ID LPAREN argument_list RPAREN{
+        auto sb = st->lookup($ID->getText());
+        code.push_back("\tCALL " + $ID->getText() + "\n");
+        if (sb->getType() != "VOID") {
+            code.push_back("\tPUSH AX\n");
+        }
+    }
+    | LPAREN expression[NUMERIC] RPAREN
     | CONST_INT{
-        code.push_back("MOV AX, " + $CONST_INT->getText() + "\n");
+        code.push_back("\tMOV AX, " + $CONST_INT->getText() + "\n");
         code.push_back("\tPUSH AX\t;Line "+ to_string($CONST_INT->getLine()) + "\n");
     }
     | CONST_FLOAT
     | var=variable INCOP {
-        // Correct post-increment: push old value, then increment
         code.push_back("\tMOV AX, " + $var.text + "\n");
         code.push_back("\tPUSH AX\n");
-        code.push_back("\tINC " + $var.text + "\n");
+        code.push_back("\tINC AX\n");
+        code.push_back("\tMOV " + $var.text + ", AX\n");
+        code.push_back("\tPOP AX\n");
     }
     | var=variable DECOP {
-        // Correct post-decrement: push old value, then decrement
         code.push_back("\tMOV AX, " + $var.text + "\n");
         code.push_back("\tPUSH AX\n");
-        code.push_back("\tDEC " + $var.text + "\n");
+        code.push_back("\tDEC AX\n");
+        code.push_back("\tMOV " + $var.text + ", AX\n");
+        code.push_back("\tPOP AX\n");
     }
     ;
 
@@ -605,8 +692,8 @@ argument_list
     ;
 
 arguments
-    : arguments COMMA logic_expression
-    | logic_expression
+    : arguments COMMA logic_expression[NUMERIC]
+    | logic_expression[NUMERIC]
     ;
 
 printLabel returns [string label]

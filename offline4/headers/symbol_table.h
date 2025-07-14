@@ -56,9 +56,12 @@ class SymbolInfo
     string type;
     bool is_function;
     FunctionData *function_data;
+    bool is_inside= false;
     bool is_defined;
     bool is_declared;
     bool is_array = false;
+    bool has_returned = false;
+    bool is_func_param = false;
     int stack_offset, array_size;
     SymbolInfo *next;
 
@@ -66,6 +69,16 @@ public:
     SymbolInfo(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size, int stack_offset);
     ~SymbolInfo();
 
+    void setIsParam(bool value){ this->is_func_param = value; }
+    bool isParam() const { return is_func_param; }
+    void setInside(bool inside)
+    {
+        if (is_function && function_data != nullptr)
+            is_inside = inside;
+    }
+    bool isInside() const { return is_inside; }
+    bool isReturned() const { return has_returned; }
+    void setReturned(bool has_returned) { this->has_returned = has_returned; }
     void setArraySize(int array_size) { this->array_size = array_size; }
     int getArraySize() const { return array_size; }
     void setDefined(bool is_defined) { this->is_defined = is_defined; }
@@ -79,6 +92,7 @@ public:
     void setArray(bool is_array) { this->is_array = is_array; }
     bool isArray() const { return is_array; }
     bool isGlobal() const{ return stack_offset == 0; }
+    void setStackOffset(int offset) { this->stack_offset = offset; }
     int getStackOffset() const { return stack_offset; }
     string getFunctionName() const
     {
@@ -114,7 +128,10 @@ public:
     }
 
     void setNext(SymbolInfo *next) { this->next = next; }
-    string to_string() const { return "< " + name + " , " + type + " , " + std::to_string(stack_offset) + " >"; };
+    string to_string() const { 
+        string offset = (is_func_param? "+": "-") + std::to_string(stack_offset);
+        return "< " + name + " , " + type + " , " + offset + " >"; 
+    };
     string getDebugData() const;
     bool operator==(const SymbolInfo *symbol) const;
     FunctionData *getFunctionData() const { return function_data; }
@@ -135,6 +152,7 @@ public:
     ScopeTable(int n, HashFunction hash, Hash_analysis *hash_analysis);
     ~ScopeTable();
 
+    int getStackTop() const { return stack_offset; }
     void increase_child_count();
     int get_child_count() const { return child_count; }
     void set_scope_id(const string &scope_id) { this->scope_id = scope_id; }
@@ -142,8 +160,8 @@ public:
     string get_scope_id() const { return scope_id; }
     ScopeTable *get_parent_scope() const { return parent_scope; }
 
-    bool insert(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0);
-
+    bool insert(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0, bool  override = false );
+    SymbolInfo *insideFunction();
     SymbolInfo *lookup(const string &name);
     SymbolInfo *lookupCurrentScope(const string &name);
     bool delete_symbol(const string &name);
@@ -173,7 +191,14 @@ public:
         return "";
     }
 
-    bool insert(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0);
+    int getCurrentScopeStackTop() const
+    {
+        if (current_scope != nullptr)
+            return current_scope->getStackTop();
+        return 0;
+    }
+
+    bool insert(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0,bool override = false);
 
     bool insertInParentScope(const string &name, const string &type, bool is_declared = false, bool is_defined = false, bool is_array = false, int array_size = 0);
 
@@ -198,6 +223,7 @@ public:
     }
     SymbolInfo *lookup(const string &name);
     SymbolInfo *lookupCurrentScope(const string &name);
+    SymbolInfo *insideFunction();
     void delete_all_scope();
     void print_current_scope();
     void print_all_scope();

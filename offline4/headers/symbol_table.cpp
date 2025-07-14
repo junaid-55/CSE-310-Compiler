@@ -199,9 +199,9 @@ void ScopeTable::increase_child_count()
     this->child_count++;
 }
 
-bool ScopeTable::insert(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size)
+bool ScopeTable::insert(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size, bool override)
 {
-    if (scope_id != "1")
+    if (!override && scope_id != "1")
     {
         if (is_array)
             stack_offset += 2 * array_size;
@@ -228,6 +228,23 @@ bool ScopeTable::insert(const string &name, const string &type, bool is_declared
     else
         prev->setNext(symbol);
     return true;
+}
+
+SymbolInfo *ScopeTable::insideFunction()
+{
+    for (int i = 0; i < size; i++)
+    {
+        SymbolInfo *curr = buckets[i];
+        while (curr != nullptr)
+        {
+            if (curr->isFunction() && curr->isInside())
+            {
+                return curr;
+            }
+            curr = curr->getNext();
+        }
+    }
+    return nullptr;
 }
 
 SymbolInfo *ScopeTable::lookup(const string &name)
@@ -376,13 +393,13 @@ void SymbolTable::exit_scope(bool override)
     this->current_scope = parent_scope;
 }
 
-bool SymbolTable::insert(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size)
+bool SymbolTable::insert(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size,bool override)
 {
     if (this->current_scope == nullptr)
     {
         return false;
     }
-    return this->current_scope->insert(name, type, is_declared, is_defined, is_array, array_size);
+    return this->current_scope->insert(name, type, is_declared, is_defined, is_array, array_size,override);
 }
 
 bool SymbolTable::insertInParentScope(const string &name, const string &type, bool is_declared, bool is_defined, bool is_array, int array_size)
@@ -401,6 +418,24 @@ bool SymbolTable::delete_symbol(const string &name)
         return false;
     }
     return true;
+}
+
+SymbolInfo *SymbolTable::insideFunction()
+{
+    if (this->current_scope == nullptr)
+    {
+        return nullptr;
+    }
+    ScopeTable *curr = this->current_scope;
+    while (curr != nullptr)
+    {
+        SymbolInfo *symbol = curr->insideFunction();
+        if (symbol != nullptr && symbol->isFunction() && symbol->isInside())
+        {
+            return symbol;
+        }
+        curr = curr->get_parent_scope();
+    }
 }
 
 SymbolInfo *SymbolTable::lookup(const string &name)
