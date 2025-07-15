@@ -1,0 +1,8 @@
+Error at line 6: Undeclared function println
+
+Error at line 7: Undeclared function println
+
+Error at line 10: Undeclared function println
+
+Error at line 12: Undeclared function println
+
