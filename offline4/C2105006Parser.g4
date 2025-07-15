@@ -521,20 +521,22 @@ variable returns [string text]
 
 expression[ExprCtx ctx] returns [ExpressionResult result]
     : logic=logic_expression[ctx] {
-        if(ctx == BOOLEAN && $logic_expression.result.truelist.empty() && $logic_expression.result.falselist.empty()) {
+        $result = ExpressionResult();
+        if(ctx == BOOLEAN && $logic.result.truelist.empty() && $logic.result.falselist.empty()) {
             // CASE 1: Boolean expression with no relational operator
             $result = ExpressionResult();
             code.push_back("\tPOP AX\n");
             code.push_back("\tCMP AX, 0\n");
-            code.push_back("\tJNE PLACEHOLDER\n"); // Placeholder for true label
+            code.push_back("\tJNE PLACEHOLDER;\t\tline "+to_string($logic.start->getLine())+ "\n"); // Placeholder for true label
             $result.truelist = makelist(code.size() - 1);
-            code.push_back("\tJMP PLACEHOLDER\n"); // Placeholder for false label
+            code.push_back("\tJMP PLACEHOLDER;\t\tline "+to_string($logic.start->getLine())+ "\n"); // Placeholder for false label
             $result.falselist = makelist(code.size() - 1);
-        } else {
+        } else if (ctx == NUMERIC ) {
             code.push_back("\tPOP AX\n");
-            $result = $logic_expression.result;
+            $result = $logic.result;
+        }else {
+            $result = $logic.result;
         }
-        $result = $logic.result;
     }
     | var=variable ASSIGNOP logic=logic_expression[NUMERIC] {
         if (!$logic.result.truelist.empty() || !$logic.result.falselist.empty()) {
@@ -553,7 +555,7 @@ expression[ExprCtx ctx] returns [ExpressionResult result]
             code.push_back(endLabel + ":\n");
         } else {
             // CASE 2: Numeric assignment — just move value
-            code.push_back("\tPOP AX\n");
+            code.push_back("\tPOP AX\t\t;line "+to_string($var.start->getLine())+ "\n");
             code.push_back("\tMOV " + $var.text + ", AX\n");
         }
     }
@@ -694,7 +696,6 @@ factor returns [ExpressionResult result]
         code.push_back("\tPUSH AX\n");
         code.push_back("\tINC AX\n");
         code.push_back("\tMOV " + $var.text + ", AX\n");
-        code.push_back("\tPOP AX\n");
         $result = ExpressionResult();
     }
     | var=variable DECOP {
@@ -702,7 +703,6 @@ factor returns [ExpressionResult result]
         code.push_back("\tPUSH AX\n");
         code.push_back("\tDEC AX\n");
         code.push_back("\tMOV " + $var.text + ", AX\n");
-        code.push_back("\tPOP AX\n");
         $result = ExpressionResult();
     }
     ;

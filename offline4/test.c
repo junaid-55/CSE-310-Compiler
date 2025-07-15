@@ -5,11 +5,17 @@ int main(){
 	j = i++;
 	println(j);
 	println(i);
-	i =0;
+	i =-1;
+	if(i<4)
+		println(i);
 	if(i++){
-		println(i);
+		int k;
+		k = 10;
+		println(k);
 	} else {
-		println(i);
+		int k;
+		k = 12;
+		println(k);
 	}
  
 	return 0;
