@@ -1,22 +1,37 @@
-int i,j;
 int main(){
-	j++;
-	i = 5;
-	j = i++;
-	println(j);
-	println(i);
-	i =-1;
-	if(i<4)
+ 
+	int i,j,k;
+	
+	i = 3;
+	j = 8;
+	k = 6;
+	
+	
+	if(i==3){
+		println(j);
+	}
+	
+	if(j<8){
 		println(i);
-	if(i++){
-		int k;
-		k = 10;
-		println(k);
-	} else {
-		int k;
-		k = 12;
+	}
+	else{
 		println(k);
 	}
+	
+	if(k != 6){
+		println(k);
+	}
+	else if(j > 8){
+		println(j);
+	}
+	else if(i < 5){
+		println(i);
+	}
+	else{
+		k = 0;
+		println(k);
+	}
+ 
  
 	return 0;
 }

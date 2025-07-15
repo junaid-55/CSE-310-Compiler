@@ -26,7 +26,7 @@ options {
 @parser::members {
     SymbolTable *st = new SymbolTable(7);
     Label *label = new Label();
-    enum ExprCtx { NUMERIC, BOOLEAN };
+    enum ExprCtx { NUMERIC, BOOLEAN, FROMRETURN };
     bool singleStatus = false;
     vector<int> patches;
     string current_type = "";
@@ -301,13 +301,19 @@ func_definition
     } compound_statement[true]{
         auto sb2 = st->lookup($ID->getText());
         sb2->setInside(false);
-        if (!sb2->isReturned()) {
-            int arg_count = sb2->getParameters().size();
-            code.push_back("\tPOP BP\n");
-            if (arg_count > 0) {
-                code.push_back("\tRET " + to_string(arg_count * 2) + "\n");
-            } else {
-                code.push_back("\tRET\n");
+        if (!st->getCurrentScopeReturned()) {
+            if($ID->getText() == "main") {
+                code.push_back("\tPOP BP\n");
+                code.push_back("\tMOV AX, 4CH\n");
+                code.push_back("\tINT 21H\n");
+            }else {
+                code.push_back("\tPOP BP\n");
+                int arg_count = sb2->getParameters().size();
+                if (arg_count > 0) {
+                    code.push_back("\tRET " + to_string(arg_count * 2) + "\n");
+                } else {
+                    code.push_back("\tRET\n");
+                }
             }
         }
         sb2->setReturned(true);
@@ -332,13 +338,15 @@ func_definition
     } compound_statement[true]{
         auto sb1 = st->lookup($ID->getText());
         sb1->setInside(false);            
-        if($ID->getText() == "main") {
-            code.push_back("\tMOV AX, 4C00H\n");
-            code.push_back("\tINT 21H\n");
-        }
-        if (!sb1->isReturned()) {
-            code.push_back("\tPOP BP\n");
-            code.push_back("\tRET\n");
+        if (!st->getCurrentScopeReturned()) {
+            if($ID->getText() == "main") {
+                code.push_back("\tPOP BP\n");
+                code.push_back("\tMOV AX, 4CH\n");
+                code.push_back("\tINT 21H\n");
+            }else {
+                code.push_back("\tPOP BP\n");
+                code.push_back("\tRET\n");
+            }
         }
         sb1->setReturned(true);
         code.push_back($ID->getText() + " ENDP\n");
@@ -467,7 +475,7 @@ statement returns [vector<int> nextList]
         code.push_back("\tCALL print_output\n");
         code.push_back("\tCALL new_line\n");
     }
-    | RETURN expression[NUMERIC] SEMICOLON{
+    | RETURN expression[FROMRETURN] SEMICOLON{
         auto sb = st->insideFunction();
         sb->setReturned(true);
         code.push_back("\tPOP AX\n");
