@@ -177,6 +177,9 @@ ScopeTable::ScopeTable(int n, HashFunction hash, Hash_analysis *hash_analysis)
     this->hash = hash;
     this->child_count = 0;
     this->stack_offset = 0;
+    this->inherited_stack_offset = 0;
+    this->current_stack_offset = 0;
+    this->scope_returned = false;
 }
 
 ScopeTable::~ScopeTable()
@@ -204,11 +207,11 @@ bool ScopeTable::insert(const string &name, const string &type, bool is_declared
     if (!override && scope_id != "1")
     {
         if (is_array)
-            stack_offset += 2 * array_size;
+            current_stack_offset += 2 * array_size;
         else if (type != "FUNCTION")
-            stack_offset += 2;
+            current_stack_offset += 2;
     }
-    SymbolInfo *symbol = new SymbolInfo(name, type, is_declared, is_defined, is_array, array_size, stack_offset);
+    SymbolInfo *symbol = new SymbolInfo(name, type, is_declared, is_defined, is_array, array_size, current_stack_offset + inherited_stack_offset);
     auto hash_name = symbol->getName();
     int i = hash(hash_name, this->size) % this->size;
     int bucket_num = i, pos = 0;
@@ -366,8 +369,10 @@ void SymbolTable::enter_scope()
     ScopeTable *new_scope = new ScopeTable(size, hash, hash_analysis);
     hash_analysis->scope_count++;
     new_scope->set_Parent_scope(this->current_scope);
-    if (current_scope != nullptr)
+    if (current_scope != nullptr){
         current_scope->increase_child_count();
+        new_scope->set_inherited_stack_offset(current_scope->getStackTop());
+    }
 
     if (current_scope == nullptr)
     {

@@ -141,9 +141,10 @@ class ScopeTable
 {
     SymbolInfo **buckets;
     ScopeTable *parent_scope;
-    int stack_offset;
+    int stack_offset, inherited_stack_offset,current_stack_offset;
     int size;
     int child_count;
+    bool scope_returned;
     string scope_id;
     Hash_analysis *hash_analysis;
     HashFunction hash;
@@ -152,7 +153,12 @@ public:
     ScopeTable(int n, HashFunction hash, Hash_analysis *hash_analysis);
     ~ScopeTable();
 
-    int getStackTop() const { return stack_offset; }
+    int get_current_stack_offset() const { return current_stack_offset; }
+    void set_inherited_stack_offset(int offset) { inherited_stack_offset = offset; }
+    int get_inherited_stack_offset() const { return inherited_stack_offset; }
+    int getStackTop() const { return current_stack_offset + inherited_stack_offset; }
+    void set_scope_returned(bool value) { scope_returned = value; }
+    bool get_scope_returned() const { return scope_returned; }
     void increase_child_count();
     int get_child_count() const { return child_count; }
     void set_scope_id(const string &scope_id) { this->scope_id = scope_id; }
@@ -182,6 +188,17 @@ public:
     SymbolTable(int n);
     ~SymbolTable();
 
+    void setCurrentScopeReturned(bool value)
+    {
+        if (current_scope != nullptr)
+            current_scope->set_scope_returned(value);
+    }
+    bool getCurrentScopeReturned() const
+    {
+        if (current_scope != nullptr)
+            return current_scope->get_scope_returned();
+        return false;
+    }
     void enter_scope();
     void exit_scope(bool override = false);
     string get_current_scope_id() const
@@ -192,6 +209,13 @@ public:
     }
 
     int getCurrentScopeStackTop() const
+    {
+        if (current_scope != nullptr)
+            return current_scope->get_current_stack_offset();
+        return 0;
+    }
+
+    int getTotalStackOffset() const
     {
         if (current_scope != nullptr)
             return current_scope->getStackTop();

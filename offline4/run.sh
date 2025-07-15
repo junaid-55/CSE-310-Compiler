@@ -11,6 +11,6 @@ else
     # if an argument is provided, use it as the input file
     LD_LIBRARY_PATH=/usr/local/lib ./main.out "$1"
 fi
-
+python mod.py output/code.asm
 # Cleanup
 bash clean.sh
