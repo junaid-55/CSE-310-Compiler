@@ -236,7 +236,7 @@ public:
             while (scope != nullptr)
             {
                 SymbolInfo *found_symbol = scope->lookupCurrentScope(symbol->getName());
-                if (found_symbol != nullptr && found_symbol == symbol)
+                if (found_symbol != nullptr && found_symbol== symbol)
                 {
                     return scope->get_scope_id();
                 }
