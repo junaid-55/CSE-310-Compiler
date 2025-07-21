@@ -11,7 +11,6 @@ options {
     #include <cstdlib>
     #include <map>
     #include "C2105006Lexer.h"
-    #include "headers/return_data.hpp" 
     #include "headers/symbol_table.h"
     #include "headers/Label.h"
     using namespace std;
@@ -66,8 +65,8 @@ options {
         return type;
     }
 
-    void initializeUtilityProcedures() {
-        vector<string> utilities = {
+    void addPrintProc() {
+        vector<string> printproc = {
             "NEW_LINE proc\n",
             "\tPUSH AX\n",
             "\tPUSH DX\n",
@@ -121,7 +120,7 @@ options {
             "\n"
         };
         
-        for(const auto& line : utilities) {
+        for(const auto& line : printproc) {
             writeIntoParserLogFile(line);
         }
     }
@@ -174,7 +173,7 @@ start
         writeIntoParserLogFile("\tnumber DB \"00000$\"\n");
     }
      program {
-        initializeUtilityProcedures();
+        addPrintProc();
         writeIntoParserLogFile("END MAIN\n");
         copyToAsmFile();
         cout<< "Parsing completed successfully." << endl;
