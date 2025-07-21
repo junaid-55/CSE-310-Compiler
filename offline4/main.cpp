@@ -5,6 +5,7 @@
 #include "C2105006Lexer.h"
 #include "C2105006Parser.h"
 #include "Listener.h" 
+#include "headers/optimizer.h"
 using namespace antlr4;
 using namespace std;
 
@@ -12,7 +13,7 @@ ofstream parserLogFile; // global output stream
 ofstream errorFile; // global error stream
 ofstream lexLogFile; // global lexer log stream
 ofstream asmFile; // global assembly output stream
-
+string parserLogFileName;
 int syntaxErrorCount = 0;
 
 int main(int argc, const char* argv[]) {
@@ -29,7 +30,7 @@ int main(int argc, const char* argv[]) {
     }
 
     string outputDirectory = "output/";
-    string parserLogFileName = outputDirectory + "log.txt";
+    parserLogFileName = outputDirectory + "log.txt";
     string errorFileName = outputDirectory + "error.txt";
     string lexLogFileName = outputDirectory + "lexer.txt";
     string asmFileName = outputDirectory + "code.asm";
@@ -87,9 +88,9 @@ int main(int argc, const char* argv[]) {
 
     // clean up
     inputFile.close();
-    parserLogFile.close();
     errorFile.close();
     lexLogFile.close();
-    
+    Optimizer optimizer(asmFileName, outputDirectory + "optimized_code.asm");
+    optimizer.optimize();
     return (syntaxErrorCount > 0) ? 1 : 0;
 }

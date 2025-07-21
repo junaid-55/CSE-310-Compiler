@@ -19,18 +19,19 @@ options {
     extern ofstream parserLogFile;
     extern ofstream errorFile;
     extern ofstream asmFile;
+    extern string parserLogFileName;
+
 
     extern int syntaxErrorCount;
 }
 
 @parser::members {
     SymbolTable *st = new SymbolTable(7);
+    map<int, string> lineToLabel;
     Label *label = new Label();
+    int line = 0;
     enum ExprCtx { NUMERIC, BOOLEAN, FROMRETURN, ARRAY, FROMFOR };
-    bool singleStatus = false;
-    vector<int> patches;
     string current_type = "";
-    vector<string> data,code;
     struct ExpressionResult {
         vector<int> truelist; 
         vector<int> falselist;
@@ -38,22 +39,16 @@ options {
         ExpressionResult() : truelist(), falselist(), nextlist() {}
     };
 
-    void writeIntoparserLogFile(const string message) {
+    bool codeflag = false;
+
+    void writeIntoParserLogFile(const string message) {
         if (!parserLogFile) {
             cout << "Error opening parserLogFile.txt" << endl;
             return;
         }
         parserLogFile << message;
         parserLogFile.flush();
-    }
-
-    void writeIntoErrorFile(const string message) {
-        if (!errorFile) {
-            cout << "Error opening errorFile.txt" << endl;
-            return;
-        }
-        errorFile << message;
-        errorFile.flush();
+        line++;
     }
 
     void writeIntoAsmFile(const string message) {
@@ -63,37 +58,6 @@ options {
         }
         asmFile << message;
         asmFile.flush();
-    }
-
-    vector<pair<string, string>> parseParameterList(const string& paramList) {
-        vector<pair<string, string>> params;
-        stringstream ss(paramList);
-        string token;
-
-        while (getline(ss, token, ',')) {
-            size_t spacePos = token.find(' ');
-            if (spacePos != string::npos) {
-                string type = token.substr(0, spacePos);
-                string name = token.substr(spacePos + 1);
-                params.emplace_back(toUpperString(type), name);
-            }
-            else {
-                params.emplace_back(toUpperString(token), "");
-            }
-        }
-        return params;
-    }
-
-    vector<string> splitCommaSeparated(const string& input) {
-        vector<string> tokens;
-        stringstream ss(input);
-        string token;
-
-        while (getline(ss, token, ',')) {
-            tokens.push_back(token);
-        }
-
-        return tokens;
     }
 
     string toUpperString(string type){
@@ -158,15 +122,12 @@ options {
         };
         
         for(const auto& line : utilities) {
-            code.push_back(line);
+            writeIntoParserLogFile(line);
         }
     }
     void backpatch(vector<int>& list, const string& label) {
         for (int index : list) {
-            size_t pos = code[index].find("PLACEHOLDER");
-            if (pos != string::npos) {
-                code[index].replace(pos, 11, label);
-            }
+             lineToLabel[index] = label;
         }
     }
     
@@ -179,24 +140,43 @@ options {
         result.insert(result.end(), list2.begin(), list2.end());
         return result;
     }
+
+    void copyToAsmFile() {
+        parserLogFile.close();
+        ifstream tempFileStream(parserLogFileName);
+        if (!tempFileStream) {
+            cout << "Error opening parserLogFileName.txt" << endl;
+            return;
+        }
+
+        int count = 1;
+        while (tempFileStream) {
+            string line;
+            getline(tempFileStream, line);
+            if(line.empty()) continue; 
+            if (lineToLabel.find(count) != lineToLabel.end()) {
+                int pos = line.find("PLACEHOLDER");
+                if (pos != string::npos) {
+                    line.replace(pos, 11, lineToLabel[count]);
+                }
+            }
+            writeIntoAsmFile(line + "\n");
+            count++;
+        }
+    }
 }
+
 start
     :{
-        writeIntoAsmFile(".MODEL SMALL\n");
-        writeIntoAsmFile(".STACK 100H\n");
-        writeIntoAsmFile(".DATA\n");
-        data.push_back("\tnumber DB \"00000$\"\n");
+        writeIntoParserLogFile(".MODEL SMALL\n");
+        writeIntoParserLogFile(".STACK 100H\n");
+        writeIntoParserLogFile(".DATA\n");
+        writeIntoParserLogFile("\tnumber DB \"00000$\"\n");
     }
      program {
         initializeUtilityProcedures();
-        for(auto &d : data) {
-            writeIntoAsmFile(d);
-        }
-        writeIntoAsmFile(".CODE\n");
-        for(auto &c : code) {
-            writeIntoAsmFile(c);
-        }
-        writeIntoAsmFile("END MAIN\n");
+        writeIntoParserLogFile("END MAIN\n");
+        copyToAsmFile();
         cout<< "Parsing completed successfully." << endl;
     }
     ;
@@ -209,7 +189,12 @@ program
 unit
     : var_declaration
     | func_declaration
-    | func_definition
+    |{
+        if(!codeflag) {
+            writeIntoParserLogFile(".CODE\n");
+            codeflag = true;
+        }
+    } func_definition
     ;
 
 var_declaration
@@ -232,35 +217,35 @@ declaration_list
     : declaration_list COMMA ID {
         st->insert($ID->getText(), toUpperString(current_type));
         if(st->get_current_scope_id() == "1") {
-            data.push_back("\t" + $ID->getText() + " DW 0\n");
+            writeIntoParserLogFile("\t" + $ID->getText() + " DW 0\n");
         } else{
-            code.push_back("\tSUB SP, 2\n");
+            writeIntoParserLogFile("\tSUB SP, 2\n");
         }
     }
     | declaration_list COMMA ID LTHIRD CONST_INT RTHIRD {
         st->insert($ID->getText(), toUpperString(current_type), true, false, true, stod($CONST_INT->getText()));
         if(st->get_current_scope_id() == "1") {
-            data.push_back("\t" + $ID->getText() + " DW " + $CONST_INT->getText() + " DUP(0)\n");
+            writeIntoParserLogFile("\t" + $ID->getText() + " DW " + $CONST_INT->getText() + " DUP(0)\n");
         } else{
             int size = stoi($CONST_INT->getText())*2;
-            code.push_back("\tSUB SP, " + to_string(size) + "\n");
+            writeIntoParserLogFile("\tSUB SP, " + to_string(size) + "\n");
         }
     }
     | ID {
         st->insert($ID->getText(), toUpperString(current_type));
         if(st->get_current_scope_id() == "1") {
-            data.push_back("\t"+$ID->getText() + " DW 0\n");
+            writeIntoParserLogFile("\t" + $ID->getText() + " DW 0\n");
         } else{
-            code.push_back("\tSUB SP, 2\t\t;Line " + to_string($ID->getLine()) + "\n");
+            writeIntoParserLogFile("\tSUB SP, 2\t\t;Line " + to_string($ID->getLine()) + "\n");
         }
     }
     | ID LTHIRD CONST_INT RTHIRD {
         st->insert($ID->getText(), toUpperString(current_type), true, false, true, stod($CONST_INT->getText()));
         if(st->get_current_scope_id() == "1") {
-            data.push_back("\t" + $ID->getText() + " DW " + $CONST_INT->getText() + " DUP(0)\n");
+            writeIntoParserLogFile("\t" + $ID->getText() + " DW " + $CONST_INT->getText() + " DUP(0)\n");
         } else{
             int size = stoi($CONST_INT->getText())*2;
-            code.push_back("\tSUB SP, " + to_string(size) + "\t\t;Line " + to_string($ID->getLine()) + "\n");
+            writeIntoParserLogFile("\tSUB SP, " + to_string(size) + "\t\t;Line " + to_string($ID->getLine()) + "\n");
         }
     }
     ;
@@ -295,33 +280,33 @@ func_definition
             sb1->setIsParam(true);
         }
         
-        code.push_back($ID->getText() + " PROC\n");
+        writeIntoParserLogFile($ID->getText() + " PROC\n");
         if($ID->getText() == "main") {
-            code.push_back("\tMOV AX, @DATA\n");
-            code.push_back("\tMOV DS, AX\n");
+            writeIntoParserLogFile("\tMOV AX, @DATA\n");
+            writeIntoParserLogFile("\tMOV DS, AX\n");
         }
-        code.push_back("\tPUSH BP\n");
-        code.push_back("\tMOV BP, SP\n");
+        writeIntoParserLogFile("\tPUSH BP\n");
+        writeIntoParserLogFile("\tMOV BP, SP\n");
     } compound_statement[true]{
         auto sb2 = st->lookup($ID->getText());
         sb2->setInside(false);
         if (!st->getCurrentScopeReturned()) {
             if($ID->getText() == "main") {
-                code.push_back("\tPOP BP\n");
-                code.push_back("\tMOV AX, 4CH\t\t;Line " + to_string($ID->getLine()) + "\n");
-                code.push_back("\tINT 21H\n");
+                writeIntoParserLogFile("\tPOP BP\n");
+                writeIntoParserLogFile("\tMOV AX, 4CH\t\t;Line " + to_string($ID->getLine()) + "\n");
+                writeIntoParserLogFile("\tINT 21H\n");
             }else {
-                code.push_back("\tPOP BP\n");
+                writeIntoParserLogFile("\tPOP BP\n");
                 int arg_count = sb2->getParameters().size();
                 if (arg_count > 0) {
-                    code.push_back("\tRET " + to_string(arg_count * 2) + "\t\t;Line " + to_string($ID->getLine()) + "\n");
+                    writeIntoParserLogFile("\tRET " + to_string(arg_count * 2) + "\t\t;Line " + to_string($ID->getLine()) + "\n");
                 } else {
-                    code.push_back("\tRET\t\t;Line " + to_string($ID->getLine()) + "\n");
+                    writeIntoParserLogFile("\tRET\t\t;Line " + to_string($ID->getLine()) + "\n");
                 }
             }
         }
         sb2->setReturned(true);
-        code.push_back($ID->getText() + " ENDP\n");
+        writeIntoParserLogFile($ID->getText() + " ENDP\n");
         st->setCurrentScopeReturned(true);
         st->exit_scope();
     }
@@ -330,28 +315,28 @@ func_definition
         st->insertInParentScope(func_data, "FUNCTION", false, true);
         auto sb = st->lookup($ID->getText());
         sb->setInside(true);
-        code.push_back($ID->getText() + " PROC\n");
+        writeIntoParserLogFile($ID->getText() + " PROC\n");
         if($ID->getText() == "main") {
-            code.push_back("\tMOV AX, @DATA\n");
-            code.push_back("\tMOV DS, AX\n");
+            writeIntoParserLogFile("\tMOV AX, @DATA\n");
+            writeIntoParserLogFile("\tMOV DS, AX\n");
         }
-        code.push_back("\tPUSH BP\n");
-        code.push_back("\tMOV BP, SP\n");
+        writeIntoParserLogFile("\tPUSH BP\n");
+        writeIntoParserLogFile("\tMOV BP, SP\n");
     } compound_statement[true]{
         auto sb1 = st->lookup($ID->getText());
         sb1->setInside(false);            
         if (!st->getCurrentScopeReturned()) {
             if($ID->getText() == "main") {
-                code.push_back("\tPOP BP\n");
-                code.push_back("\tMOV AX, 4CH\t\t;Line " + to_string($ID->getLine()) + "\n");
-                code.push_back("\tINT 21H\n");
+                writeIntoParserLogFile("\tPOP BP\n");
+                writeIntoParserLogFile("\tMOV AX, 4CH\t\t;Line " + to_string($ID->getLine()) + "\n");
+                writeIntoParserLogFile("\tINT 21H\n");
             }else {
-                code.push_back("\tPOP BP\n");
-                code.push_back("\tRET\n\t\t;Line " + to_string($ID->getLine()) + "\n");
+                writeIntoParserLogFile("\tPOP BP\n");
+                writeIntoParserLogFile("\tRET\n\t\t;Line " + to_string($ID->getLine()) + "\n");
             }
         }
         sb1->setReturned(true);
-        code.push_back($ID->getText() + " ENDP\n");
+        writeIntoParserLogFile($ID->getText() + " ENDP\n");
         st->setCurrentScopeReturned(true);
         st->exit_scope();
     }
@@ -380,16 +365,14 @@ compound_statement[bool isFunction] returns [vector<int> nextList]
 
         if(!st->getCurrentScopeReturned()) {
             if(st->getCurrentScopeStackTop() > 0){
-                code.push_back(label->getNextLabel() + ":\n");
-                code.push_back("\tADD SP, " + to_string(st->getCurrentScopeStackTop()) + "\n");
+                writeIntoParserLogFile(label->getNextLabel() + ":\n");
+                writeIntoParserLogFile("\tADD SP, " + to_string(st->getCurrentScopeStackTop()) + "\n");
             }
         }
         $nextList = $st.nextList;
         if (!isFunction) {
             st->exit_scope();
         }
-        if(st->getCurrentScopeReturned())
-            code.push_back(";UNREACHABLE CODE ENDS HERE\n");
     }
     | LCURL {
         if (!isFunction)
@@ -441,7 +424,7 @@ statement returns [vector<int> nextList]
         statement {
         backpatch($expst.result.truelist, $pl3.label);
         backpatch($next.nextList, $pl1.label); 
-        code.push_back("\tJMP " + $pl2.label + "\n");
+        writeIntoParserLogFile("\tJMP " + $pl2.label + "\n");
         $nextList = $expst.result.falselist;
     }
 
@@ -461,42 +444,40 @@ statement returns [vector<int> nextList]
         backpatch($st.nextList, $pl1.label);
         backpatch($expr.result.truelist, $pl2.label);
         $nextList =$expr.result.falselist;
-        code.push_back("\tJMP " + $pl1.label + "\n");
+        writeIntoParserLogFile("\tJMP " + $pl1.label + "\n");
     }
     | PRINTLN LPAREN ID RPAREN SEMICOLON {
         auto sb = st->lookup($ID->getText()); 
         auto scope_id = st->get_scope_id(sb);
         if (scope_id == "1") {
-            code.push_back("\tMOV AX, " + $ID->getText() + "\n");
+            writeIntoParserLogFile("\tMOV AX, " + $ID->getText() + "\n");
         } else {
-            code.push_back("\tMOV AX, [BP-" + to_string(sb->getStackOffset()) + "]\n");
+            writeIntoParserLogFile("\tMOV AX, [BP-" + to_string(sb->getStackOffset()) + "]\n");
         }
-        code.push_back("\tCALL PRINT_OUTPUT\t\t;Line " + to_string($ID->getLine()) + "\n");
-        code.push_back("\tCALL NEW_LINE\n");
+        writeIntoParserLogFile("\tCALL PRINT_OUTPUT\t\t;Line " + to_string($ID->getLine()) + "\n");
+        writeIntoParserLogFile("\tCALL NEW_LINE\n");
     }
     | RETURN expression[FROMRETURN] SEMICOLON{
         auto sb = st->insideFunction();
         sb->setReturned(true);
-        code.push_back("\tPOP AX\n");
+        writeIntoParserLogFile("\tPOP AX\n");
         int top = st->getTotalStackOffset();
         if (top > 0) {
-            code.push_back("\tADD SP, " + to_string(top) + "\n");
+            writeIntoParserLogFile("\tADD SP, " + to_string(top) + "\n");
         }
-        code.push_back(label->getNextLabel() + ":\n");
-        code.push_back("\tPOP BP\n");
+        writeIntoParserLogFile(label->getNextLabel() + ":\n");
+        writeIntoParserLogFile("\tPOP BP\n");
         top = st->getCurrentScopeStackTop();
         if(sb->getFunctionName() != "main") {
             if (sb->getType() == "VOID" || sb->getParameters().empty()) {
-                code.push_back("\tRET\t\t;Line " + to_string($RETURN->getLine()) + "\n");
+                writeIntoParserLogFile("\tRET\t\t;Line " + to_string($RETURN->getLine()) + "\n");
             } else {
-                code.push_back("\tRET "+to_string(sb->getParameters().size()*2)+"\t\t;Line " + to_string($RETURN->getLine()) + "\n");
+                writeIntoParserLogFile("\tRET "+to_string(sb->getParameters().size()*2)+"\t\t;Line " + to_string($RETURN->getLine()) + "\n");
             }
         }else {
-            code.push_back("\tMOV AX, 4CH\n");
-            code.push_back("\tINT 21H\n");
+            writeIntoParserLogFile("\tMOV AX, 4CH\n");
+            writeIntoParserLogFile("\tINT 21H\n");
         }
-        if(!st->getCurrentScopeReturned())
-            code.push_back(";UNREACHABLE CODE STARTS HERE\n");
         st->setCurrentScopeReturned(true);
     }
     ;
@@ -506,7 +487,7 @@ expression_statement[ExprCtx ctx] returns[ExpressionResult result]
     }
     | expression[ctx] SEMICOLON{
         if(ctx == NUMERIC) {
-            code.push_back("\tPOP AX\n");
+            writeIntoParserLogFile("\tPOP AX\n");
         } 
         $result = $expression.result;
     }
@@ -530,25 +511,25 @@ variable[bool isDestination] returns [string text,bool isArray]
     | ID LTHIRD expression[ARRAY] RTHIRD{
         auto sb = st->lookup($ID->getText());
         auto scope_id = st->get_scope_id(sb);
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tSHL AX, 1\n"); 
+        writeIntoParserLogFile("\tPOP AX\n");
+        writeIntoParserLogFile("\tSHL AX, 1\n"); 
         if (scope_id == "1") {
             if(isDestination){
-                code.push_back("\tPUSH AX\n");
+                writeIntoParserLogFile("\tPUSH AX\n");
             }else{
-                code.push_back("\tMOV SI, AX\n");
+                writeIntoParserLogFile("\tMOV SI, AX\n");
             }
-            $text = "[ "+$ID->getText() + " + SI]";
+            $text = "[ "+$ID->getText() + " + SI ]";
         } 
         else {
             string offset = to_string(sb->getStackOffset());
-            code.push_back("\tSUB AX, " + offset + "\n");
+            writeIntoParserLogFile("\tSUB AX, " + offset + "\n");
             if(isDestination){
-                code.push_back("\tPUSH AX\n");
+                writeIntoParserLogFile("\tPUSH AX\n");
             }else{
-                code.push_back("\tMOV SI, AX\n");
+                writeIntoParserLogFile("\tMOV SI, AX\n");
             }
-            $text = "[BP + SI]";
+            $text = "[ BP + SI ]";
         }
         $isArray = true;
     }
@@ -559,15 +540,15 @@ expression[ExprCtx ctx] returns [ExpressionResult result]
         $result = ExpressionResult();
         if(ctx == BOOLEAN && $logic.result.truelist.empty() && $logic.result.falselist.empty()) {
             $result = ExpressionResult();
-            code.push_back("\tPOP AX\n");
-            code.push_back("\tCMP AX, 0\t\t;Line " + to_string($logic.start->getLine()) + "\n");
-            code.push_back("\tJNE PLACEHOLDER\n");
-            $result.truelist = makelist(code.size() - 1);
-            code.push_back("\tJMP PLACEHOLDER\n");
-            $result.falselist = makelist(code.size() - 1);
+            writeIntoParserLogFile("\tPOP AX\n");
+            writeIntoParserLogFile("\tCMP AX, 0\t\t;Line " + to_string($logic.start->getLine()) + "\n");
+            writeIntoParserLogFile("\tJNE PLACEHOLDER\n");
+            $result.truelist = makelist(line);
+            writeIntoParserLogFile("\tJMP PLACEHOLDER\n");
+            $result.falselist = makelist(line);
         } 
         else if (ctx == FROMFOR ) {
-            code.push_back("\tPOP AX\n");
+            writeIntoParserLogFile("\tPOP AX\n");
             $result = $logic.result;
         }
         else {
@@ -581,23 +562,23 @@ expression[ExprCtx ctx] returns [ExpressionResult result]
             string endLabel = label->getNextLabel();
             backpatch($logic.result.truelist, trueLabel);
             backpatch($logic.result.falselist, falseLabel);
-            code.push_back(trueLabel + ":\n");
-            code.push_back("\tMOV AX, 1\n");
-            code.push_back("\tMOV " + $var.text + ", AX\t\t;Line " + to_string($var.start->getLine()) + "\n");
-            code.push_back("\tJMP " + endLabel + "\n");
-            code.push_back(falseLabel + ":\n");
-            code.push_back("\tMOV AX, 0\n");
-            code.push_back("\tMOV " + $var.text + ", AX\t\t;Line " + to_string($var.start->getLine()) + "\n");
-            code.push_back(endLabel + ":\n");
+            writeIntoParserLogFile(trueLabel + ":\n");
+            writeIntoParserLogFile("\tMOV AX, 1\n");
+            writeIntoParserLogFile("\tMOV " + $var.text + ", AX\t\t;Line " + to_string($var.start->getLine()) + "\n");
+            writeIntoParserLogFile("\tJMP " + endLabel + "\n");
+            writeIntoParserLogFile(falseLabel + ":\n");
+            writeIntoParserLogFile("\tMOV AX, 0\n");
+            writeIntoParserLogFile("\tMOV " + $var.text + ", AX\t\t;Line " + to_string($var.start->getLine()) + "\n");
+            writeIntoParserLogFile(endLabel + ":\n");
         } else {
-            code.push_back("\tPOP AX\n");
+            writeIntoParserLogFile("\tPOP AX\n");
             if($var.isArray){
-                code.push_back("\tPOP SI\n");
+                writeIntoParserLogFile("\tPOP SI\n");
             }
-            code.push_back("\tMOV " + $var.text + ", AX\t\t;Line " + to_string($var.start->getLine()) + "\n");
+            writeIntoParserLogFile("\tMOV " + $var.text + ", AX\t\t;Line " + to_string($var.start->getLine()) + "\n");
         }
         if(ctx != FROMFOR)
-        code.push_back("\tPUSH AX\n");
+        writeIntoParserLogFile("\tPUSH AX\n");
     }
     ;
 
@@ -623,37 +604,37 @@ rel_expression[ExprCtx ctx] returns [ExpressionResult result]
     :  simple_expression{
         $result = $simple_expression.result;
         if(ctx  == BOOLEAN && $result.truelist.empty() && $result.falselist.empty()) {
-            code.push_back("\tPOP AX\n");
-            code.push_back("\tCMP AX, 0\t\t;Line " + to_string($simple_expression.start->getLine()) + "\n");
-            code.push_back("\tJNE PLACEHOLDER;\t\tline "+to_string($simple_expression.start->getLine())+ "\n");
-            $result.truelist = makelist(code.size() - 1);
-            code.push_back("\tJMP PLACEHOLDER;\t\tline "+to_string($simple_expression.start->getLine())+ "\n");
-            $result.falselist = makelist(code.size() - 1);
+            writeIntoParserLogFile("\tPOP AX\n");
+            writeIntoParserLogFile("\tCMP AX, 0\t\t;Line " + to_string($simple_expression.start->getLine()) + "\n");
+            writeIntoParserLogFile("\tJNE PLACEHOLDER;\t\tline "+to_string($simple_expression.start->getLine())+ "\n");
+            $result.truelist = makelist(line);
+            writeIntoParserLogFile("\tJMP PLACEHOLDER;\t\tline "+to_string($simple_expression.start->getLine())+ "\n");
+            $result.falselist = makelist(line);
         }
     }
     | simple_expression RELOP simple_expression{
         $result = ExpressionResult();
-        code.push_back("\tPOP BX\n");
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tCMP AX, BX\t\t;Line " + to_string($RELOP->getLine()) + "\n");
+        writeIntoParserLogFile("\tPOP BX\n");
+        writeIntoParserLogFile("\tPOP AX\n");
+        writeIntoParserLogFile("\tCMP AX, BX\t\t;Line " + to_string($RELOP->getLine()) + "\n");
 
         if ($RELOP->getText() == "==") {
-            code.push_back("\tJE PLACEHOLDER\n");
+            writeIntoParserLogFile("\tJE PLACEHOLDER\n");
         } else if ($RELOP->getText() == "!=") {
-            code.push_back("\tJNE PLACEHOLDER\n");
+            writeIntoParserLogFile("\tJNE PLACEHOLDER\n");
         } else if ($RELOP->getText() == "<") {
-            code.push_back("\tJL PLACEHOLDER\n");
+            writeIntoParserLogFile("\tJL PLACEHOLDER\n");
         } else if ($RELOP->getText() == "<=") {
-            code.push_back("\tJLE PLACEHOLDER\n");
+            writeIntoParserLogFile("\tJLE PLACEHOLDER\n");
         } else if ($RELOP->getText() == ">") {
-            code.push_back("\tJG PLACEHOLDER\n");
+            writeIntoParserLogFile("\tJG PLACEHOLDER\n");
         } else if ($RELOP->getText() == ">=") {
-            code.push_back("\tJGE PLACEHOLDER\n");
+            writeIntoParserLogFile("\tJGE PLACEHOLDER\n");
         }
 
-        $result.truelist = makelist(code.size() - 1);
-        code.push_back("\tJMP PLACEHOLDER\n");
-        $result.falselist = makelist(code.size() - 1);
+        $result.truelist = makelist(line);
+        writeIntoParserLogFile("\tJMP PLACEHOLDER\n");
+        $result.falselist = makelist(line);
     }
     ;
 
@@ -664,15 +645,15 @@ simple_expression returns [ExpressionResult result]
     | simple_expression ADDOP term {
         $result = ExpressionResult();
         if ($ADDOP->getText() == "+") {
-            code.push_back("\tPOP BX\n");
-            code.push_back("\tPOP AX\n");
-            code.push_back("\tADD AX, BX\t\t;Line " + to_string($ADDOP->getLine()) + "\n");
-            code.push_back("\tPUSH AX\n");
+            writeIntoParserLogFile("\tPOP BX\n");
+            writeIntoParserLogFile("\tPOP AX\n");
+            writeIntoParserLogFile("\tADD AX, BX\t\t;Line " + to_string($ADDOP->getLine()) + "\n");
+            writeIntoParserLogFile("\tPUSH AX\n");
         } else if ($ADDOP->getText() == "-") {
-            code.push_back("\tPOP BX\n");
-            code.push_back("\tPOP AX\n");
-            code.push_back("\tSUB AX, BX\t\t;Line " + to_string($ADDOP->getLine()) + "\n");
-            code.push_back("\tPUSH AX\n");
+            writeIntoParserLogFile("\tPOP BX\n");
+            writeIntoParserLogFile("\tPOP AX\n");
+            writeIntoParserLogFile("\tSUB AX, BX\t\t;Line " + to_string($ADDOP->getLine()) + "\n");
+            writeIntoParserLogFile("\tPUSH AX\n");
         }
     }
     ;
@@ -681,18 +662,18 @@ term returns [ExpressionResult result]
         $result = $unary_expression.result;
     }
     | term MULOP unary_expression{
-        code.push_back("\tPOP CX\n");
-        code.push_back("\tPOP AX\n");
-        code.push_back("\tCWD\n");
+        writeIntoParserLogFile("\tPOP CX\n");
+        writeIntoParserLogFile("\tPOP AX\n");
+        writeIntoParserLogFile("\tCWD\n");
         if($MULOP->getText() == "*") {
-            code.push_back("\tMUL CX\t\t;Line " + to_string($MULOP->getLine()) + "\n");
+            writeIntoParserLogFile("\tMUL CX\t\t;Line " + to_string($MULOP->getLine()) + "\n");
         } else if ($MULOP->getText() == "/") {
-            code.push_back("\tDIV CX\t\t;Line " + to_string($MULOP->getLine()) + "\n");
+            writeIntoParserLogFile("\tDIV CX\t\t;Line " + to_string($MULOP->getLine()) + "\n");
         } else if ($MULOP->getText() == "%") {
-            code.push_back("\tDIV CX\t\t;Line " + to_string($MULOP->getLine()) + "\n");
-            code.push_back("\tMOV AX, DX\n");
+            writeIntoParserLogFile("\tDIV CX\t\t;Line " + to_string($MULOP->getLine()) + "\n");
+            writeIntoParserLogFile("\tMOV AX, DX\n");
         }
-        code.push_back("\tPUSH AX\n");
+        writeIntoParserLogFile("\tPUSH AX\n");
         $result = ExpressionResult();
     }
     ;
@@ -700,9 +681,9 @@ term returns [ExpressionResult result]
 unary_expression returns [ExpressionResult result]
     : ADDOP unary_expression {
         if ($ADDOP->getText() == "-") {
-            code.push_back("\tPOP AX\n");
-            code.push_back("\tNEG AX\t\t;Line " + to_string($ADDOP->getLine()) + "\n");
-            code.push_back("\tPUSH AX\n");
+            writeIntoParserLogFile("\tPOP AX\n");
+            writeIntoParserLogFile("\tNEG AX\t\t;Line " + to_string($ADDOP->getLine()) + "\n");
+            writeIntoParserLogFile("\tPUSH AX\n");
         }
         $result = ExpressionResult();
     }
@@ -717,15 +698,15 @@ unary_expression returns [ExpressionResult result]
 
 factor returns [ExpressionResult result]
     : var=variable[false] {
-        code.push_back("\tMOV AX, " + $var.text + "\t\t;Line " + to_string($var.start->getLine()) + "\n");
-        code.push_back("\tPUSH AX\n");
+        writeIntoParserLogFile("\tMOV AX, " + $var.text + "\t\t;Line " + to_string($var.start->getLine()) + "\n");
+        writeIntoParserLogFile("\tPUSH AX\n");
         $result = ExpressionResult();
     }
     | ID LPAREN argument_list RPAREN{
         auto sb = st->lookup($ID->getText());
-        code.push_back("\tCALL " + $ID->getText() + "\t\t;Line " + to_string($ID->getLine()) + "\n");
+        writeIntoParserLogFile("\tCALL " + $ID->getText() + "\t\t;Line " + to_string($ID->getLine()) + "\n");
         if (sb->getType() != "VOID") {
-            code.push_back("\tPUSH AX\n");
+            writeIntoParserLogFile("\tPUSH AX\n");
         }
         $result = ExpressionResult();
     }
@@ -733,25 +714,25 @@ factor returns [ExpressionResult result]
         $result = $expression.result;
     }
     | CONST_INT{
-        code.push_back("\tMOV AX, " + $CONST_INT->getText() + "\t\t;Line " + to_string($CONST_INT->getLine()) + "\n");
-        code.push_back("\tPUSH AX\n");
+        writeIntoParserLogFile("\tMOV AX, " + $CONST_INT->getText() + "\t\t;Line " + to_string($CONST_INT->getLine()) + "\n");
+        writeIntoParserLogFile("\tPUSH AX\n");
         $result = ExpressionResult();
     }
     | CONST_FLOAT{
         $result = ExpressionResult();
     }
     | var=variable[false] INCOP {
-        code.push_back("\tMOV AX, " + $var.text + "\t\t;Line " + to_string($var.start->getLine()) + "\n");
-        code.push_back("\tPUSH AX\n");
-        code.push_back("\tINC AX\n");
-        code.push_back("\tMOV " + $var.text + ", AX\n");
+        writeIntoParserLogFile("\tMOV AX, " + $var.text + "\t\t;Line " + to_string($var.start->getLine()) + "\n");
+        writeIntoParserLogFile("\tPUSH AX\n");
+        writeIntoParserLogFile("\tINC AX\n");
+        writeIntoParserLogFile("\tMOV " + $var.text + ", AX\n");
         $result = ExpressionResult();
     }
     | var=variable[false] DECOP {
-        code.push_back("\tMOV AX, " + $var.text + "\t\t;Line " + to_string($var.start->getLine()) + "\n");
-        code.push_back("\tPUSH AX\n");
-        code.push_back("\tDEC AX\n");
-        code.push_back("\tMOV " + $var.text + ", AX\n");
+        writeIntoParserLogFile("\tMOV AX, " + $var.text + "\t\t;Line " + to_string($var.start->getLine()) + "\n");
+        writeIntoParserLogFile("\tPUSH AX\n");
+        writeIntoParserLogFile("\tDEC AX\n");
+        writeIntoParserLogFile("\tMOV " + $var.text + ", AX\n");
         $result = ExpressionResult();
     }
     ;
@@ -768,13 +749,13 @@ arguments
 
 printLabel returns [string label]
     : /* empty */ {
-        code.push_back(label->getNextLabel() + ":\n");
+        writeIntoParserLogFile(label->getNextLabel() + ":\n");
         $label = label->getCurrentLabel();
     }
     ;
 next returns [vector<int> nextList]
     : { 
-        code.push_back("\tJMP PLACEHOLDER\n");
-        $nextList = makelist(code.size() - 1); 
+        writeIntoParserLogFile("\tJMP PLACEHOLDER\n");
+        $nextList = makelist(line); 
     }
     ;

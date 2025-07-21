@@ -1,46 +1,21 @@
-int f(int a){
-	int k;
-	k = 5;
-	while(k>0){
-		a++;
-		k--;
-	}
-    return 3*a - 7;
-    a=9;
-}
-
-int g(int a, int b){
+int main(){ 
+	int i;
+	if(i>0 || i<10)
+		i=100;
+	else 
+		i=200;
 	
-    int x,i;
-    x=f(a)+a+b;
-    
-    for(i=0;i<7;i++){
-    	if(i%3 == 0){
-    		x = x+5;
-    	}
-    	else{
-    		x = x-1;
-    	}
-    }
-    
-    return x;
+	if(i>20 && i<30)
+		i=300;
+	else 
+		i=400;
+	
+	if((i>40 && i<50) || (i<60 && i>70))
+		i=500;
+	else 
+		i=600;
+	println(i);	
+	
+	return 0;
 }
 
-int main(){
-    int a,b,i;
-    a=1;
-    b=2;
-    a=g(a,b);
-    println(a);
-    for(i=0;i<4;i++){
-        a=3;
-        while(a>0){
-            b++;
-            a--;
-        }
-    }
-    println(a);
-    println(b);
-    println( i);
-    return 0;
-}
