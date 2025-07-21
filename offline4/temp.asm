@@ -1,0 +1,169 @@
+.MODEL SMALL
+.STACK 100H
+.DATA
+	number DB "00000$"
+.CODE
+func PROC
+	PUSH BP
+	MOV BP, SP
+	SUB SP, 2		;Line 2
+L1:
+	MOV AX, [BP+4]		;Line 3
+	PUSH AX
+	MOV AX, 0		;Line 3
+	PUSH AX
+	POP BX
+	POP AX
+	CMP AX, BX		;Line 3
+	JE L2
+	JMP L4
+L2:
+	MOV AX, 0		;Line 3
+	ADD SP, 2
+L3:
+	POP BP
+	RET 2		;Line 3
+L4:
+	MOV AX, [BP+4]		;Line 4
+	MOV [BP-2], AX		;Line 4
+L5:
+	MOV AX, [BP+4]		;Line 5
+	PUSH AX
+	MOV AX, 1		;Line 5
+	PUSH AX
+	POP BX
+	POP AX
+	SUB AX, BX		;Line 5
+	PUSH AX
+	CALL func		;Line 5
+	PUSH AX
+	MOV AX, [BP-2]		;Line 5
+	PUSH AX
+	POP BX
+	POP AX
+	ADD AX, BX		;Line 5
+	ADD SP, 2
+L6:
+	POP BP
+	RET 2		;Line 5
+L7:
+func ENDP
+func2 PROC
+	PUSH BP
+	MOV BP, SP
+	SUB SP, 2		;Line 9
+L8:
+	MOV AX, [BP+4]		;Line 10
+	PUSH AX
+	MOV AX, 0		;Line 10
+	PUSH AX
+	POP BX
+	POP AX
+	CMP AX, BX		;Line 10
+	JE L9
+	JMP L11
+L9:
+	MOV AX, 0		;Line 10
+	ADD SP, 2
+L10:
+	POP BP
+	RET 2		;Line 10
+L11:
+	MOV AX, [BP+4]		;Line 11
+	MOV [BP-2], AX		;Line 11
+L12:
+	MOV AX, [BP+4]		;Line 12
+	PUSH AX
+	MOV AX, 1		;Line 12
+	PUSH AX
+	POP BX
+	POP AX
+	SUB AX, BX		;Line 12
+	PUSH AX
+	CALL func		;Line 12
+	PUSH AX
+	MOV AX, [BP-2]		;Line 12
+	PUSH AX
+	POP BX
+	POP AX
+	ADD AX, BX		;Line 12
+	ADD SP, 2
+L13:
+	POP BP
+	RET 2		;Line 12
+L14:
+func2 ENDP
+main PROC
+	MOV AX, @DATA
+	MOV DS, AX
+	PUSH BP
+	MOV BP, SP
+	SUB SP, 2		;Line 16
+L15:
+	MOV AX, 7		;Line 17
+	PUSH AX
+	CALL func		;Line 17
+	MOV [BP-2], AX		;Line 17
+L16:
+	MOV AX, [BP-2]
+	CALL PRINT_OUTPUT		;Line 18
+	CALL NEW_LINE
+L17:
+	MOV AX, 0		;Line 19
+	ADD SP, 2
+L18:
+	POP BP
+	MOV AX, 4CH
+	INT 21H
+L19:
+main ENDP
+NEW_LINE proc
+	PUSH AX
+	PUSH DX
+	MOV AH,2
+	MOV DL,0Dh
+	INT 21h
+	MOV AH,2
+	MOV DL,0Ah
+	INT 21h
+	POP DX
+	POP AX
+	RET
+NEW_LINE ENDP
+PRINT_OUTPUT proc  ;print what is in ax
+	PUSH AX
+	PUSH BX
+	PUSH CX
+	PUSH DX
+	PUSH SI
+	LEA SI,NUMBER
+	MOV BX,10
+	ADD SI,4
+	CMP AX,0
+	JGE print
+	PUSH AX
+	MOV AH,2
+	MOV DL,'-'
+	INT 21h
+	POP AX
+	NEG AX
+PRINT:
+	XOR DX,DX
+	DIV BX
+	MOV [SI],DL
+	ADD [SI],'0'
+	DEC SI
+	CMP AX,0
+	JNE PRINT
+	INC SI
+	LEA DX,SI
+	MOV AH,9
+	INT 21h
+	POP SI
+	POP DX
+	POP CX
+	POP BX
+	POP AX
+	RET
+PRINT_OUTPUT ENDP
+END MAIN

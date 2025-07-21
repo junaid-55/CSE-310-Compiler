@@ -10,9 +10,7 @@ using namespace std;
 ofstream parserLogFile; // global output stream
 ofstream errorFile; // global error stream
 ofstream lexLogFile; // global lexer log stream
-
 int syntaxErrorCount;
-
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
         cerr << "Usage: " << argv[0] << " <input_file>" << endl;
@@ -52,7 +50,6 @@ int main(int argc, const char* argv[]) {
         cerr << "Error opening lexer log file: " << lexLogFileName << endl;
         return 1;
     }
-   
     // ---- Parsing Flow ----
     ANTLRInputStream input(inputFile);
     C2105006Lexer lexer(&input);
@@ -67,7 +64,6 @@ int main(int argc, const char* argv[]) {
 
     // clean up
     inputFile.close();
-    parserLogFile.close();
     errorFile.close();
     lexLogFile.close();
     cout << "Parsing completed. Check the output files for details." << endl;
